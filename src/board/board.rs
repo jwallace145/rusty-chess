@@ -8,8 +8,8 @@ pub struct Square(pub Option<(Piece, Color)>);
 pub struct Board {
     pub squares: [Square; 64],
     pub side_to_move: Color,
-    white_king_pos: usize,
-    black_king_pos: usize,
+    pub white_king_pos: usize,
+    pub black_king_pos: usize,
     white_king_moved: bool,
     white_kingside_rook_moved: bool,
     white_queenside_rook_moved: bool,
@@ -211,8 +211,11 @@ impl Board {
             if (color == Color::White && rank_from == 1 && rank_to == 3)
                 || (color == Color::Black && rank_from == 6 && rank_to == 4)
             {
-                self.en_passant_target =
-                    Some(chess_move.from + (chess_move.to - chess_move.from) / 2);
+                self.en_passant_target = if chess_move.to > chess_move.from {
+                    Some(chess_move.from + (chess_move.to - chess_move.from) / 2)
+                } else {
+                    Some(chess_move.to + (chess_move.from - chess_move.to) / 2)
+                };
             }
 
             // Capture en passant
@@ -301,12 +304,14 @@ impl Board {
                 if rank == start_rank {
                     let double_rank = (rank as isize + 2 * forward) as usize;
                     let double_idx = double_rank * 8 + file;
-                    moves.push(ChessMove {
-                        from: index,
-                        to: double_idx,
-                        capture: false,
-                        moveType: ChessMoveType::Normal,
-                    });
+                    if self.squares[double_idx].0.is_none() {
+                        moves.push(ChessMove {
+                            from: index,
+                            to: double_idx,
+                            capture: false,
+                            moveType: ChessMoveType::Normal,
+                        });
+                    }
                 }
             }
         }
@@ -593,6 +598,21 @@ impl Board {
         }
     }
 
+    pub fn is_in_check(&self, color: Color) -> bool {
+        let king_square = self.king_pos(color);
+        self.is_square_attacked(king_square, color.opponent())
+    }
+
+    pub fn is_checkmate(&self) -> bool {
+        let legal_moves = self.generate_legal_moves();
+        legal_moves.is_empty() && self.is_in_check(self.side_to_move)
+    }
+
+    pub fn is_stalemate(&self) -> bool {
+        let legal_moves = self.generate_legal_moves();
+        legal_moves.is_empty() && !self.is_in_check(self.side_to_move)
+    }
+
     pub fn print(&self) {
         // Unicode chess symbols
         fn unicode_symbol(piece: Piece, color: Color) -> char {
@@ -783,6 +803,32 @@ mod tests {
 
         board.squares[from].0 = Some((piece, color));
         let moves = board.generate_pawn_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_pawn_moves_blocked_double_move() {
+        // Test that a pawn on its starting rank cannot double-move if destination is blocked
+        let mut board = Board::empty();
+
+        // Place white pawn on h2
+        board.squares[pos("h2")].0 = Some((Piece::Pawn, Color::White));
+        // Place a piece on h4 (blocking the double move destination)
+        board.squares[pos("h4")].0 = Some((Piece::Queen, Color::Black));
+
+        // The pawn should only be able to move to h3
+        let expected = vec![ChessMove {
+            from: pos("h2"),
+            to: pos("h3"),
+            capture: false,
+            moveType: ChessMoveType::Normal,
+        }];
+
+        let moves = board.generate_pawn_moves(pos("h2"), Color::White);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2114,6 +2160,149 @@ mod tests {
         assert!(
             !moves.contains(&kingside_castle),
             "Castling should not be available when squares are occupied"
+        );
+    }
+
+    #[test]
+    fn test_is_in_check() {
+        // Test white king in check from black rook
+        let mut board = Board::empty();
+        board.squares[pos("e1")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("e8")].0 = Some((Piece::Rook, Color::Black));
+        board.white_king_pos = pos("e1");
+        board.black_king_pos = pos("h8");
+        board.side_to_move = Color::White;
+
+        assert!(
+            board.is_in_check(Color::White),
+            "White king should be in check from black rook"
+        );
+        assert!(
+            !board.is_in_check(Color::Black),
+            "Black king should not be in check"
+        );
+
+        // Test black king in check from white queen
+        let mut board = Board::empty();
+        board.squares[pos("e8")].0 = Some((Piece::King, Color::Black));
+        board.squares[pos("e1")].0 = Some((Piece::Queen, Color::White));
+        board.white_king_pos = pos("a1");
+        board.black_king_pos = pos("e8");
+        board.side_to_move = Color::Black;
+
+        assert!(
+            board.is_in_check(Color::Black),
+            "Black king should be in check from white queen"
+        );
+    }
+
+    #[test]
+    fn test_checkmate_back_rank() {
+        // Classic back rank mate: white king on g1, black rook on a1, white pawns blocking escape
+        let mut board = Board::empty();
+        board.squares[pos("g1")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("f2")].0 = Some((Piece::Pawn, Color::White));
+        board.squares[pos("g2")].0 = Some((Piece::Pawn, Color::White));
+        board.squares[pos("h2")].0 = Some((Piece::Pawn, Color::White));
+        board.squares[pos("a1")].0 = Some((Piece::Rook, Color::Black)); // Attacks along first rank
+        board.squares[pos("e8")].0 = Some((Piece::King, Color::Black));
+        board.white_king_pos = pos("g1");
+        board.black_king_pos = pos("e8");
+        board.side_to_move = Color::White;
+
+        assert!(
+            board.is_checkmate(),
+            "White should be in checkmate (back rank mate)"
+        );
+    }
+
+    #[test]
+    fn test_checkmate_queen_and_king() {
+        // Queen and king checkmate in the corner
+        let mut board = Board::empty();
+        board.squares[pos("a8")].0 = Some((Piece::King, Color::Black));
+        board.squares[pos("b6")].0 = Some((Piece::Queen, Color::White));
+        board.squares[pos("b8")].0 = Some((Piece::King, Color::White));
+        board.white_king_pos = pos("b8");
+        board.black_king_pos = pos("a8");
+        board.side_to_move = Color::Black;
+
+        assert!(
+            board.is_checkmate(),
+            "Black should be in checkmate (queen and king mate)"
+        );
+    }
+
+    #[test]
+    fn test_stalemate() {
+        // Classic stalemate: black king on a8, white king on c7, white queen on c6
+        let mut board = Board::empty();
+        board.squares[pos("a8")].0 = Some((Piece::King, Color::Black));
+        board.squares[pos("c6")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("c7")].0 = Some((Piece::Queen, Color::White));
+        board.white_king_pos = pos("c6");
+        board.black_king_pos = pos("a8");
+        board.side_to_move = Color::Black;
+
+        assert!(
+            board.is_stalemate(),
+            "Black should be in stalemate (no legal moves, not in check)"
+        );
+        assert!(
+            !board.is_checkmate(),
+            "This should be stalemate, not checkmate"
+        );
+    }
+
+    #[test]
+    fn test_not_checkmate_can_block() {
+        // King in check but can be blocked
+        let mut board = Board::empty();
+        board.squares[pos("e1")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("e8")].0 = Some((Piece::Rook, Color::Black));
+        board.squares[pos("d2")].0 = Some((Piece::Bishop, Color::White)); // Can block on e2
+        board.white_king_pos = pos("e1");
+        board.black_king_pos = pos("h8");
+        board.side_to_move = Color::White;
+
+        assert!(board.is_in_check(Color::White), "White should be in check");
+        assert!(
+            !board.is_checkmate(),
+            "White should not be in checkmate (can block with bishop)"
+        );
+    }
+
+    #[test]
+    fn test_not_checkmate_can_escape() {
+        // King in check but has escape square
+        let mut board = Board::empty();
+        board.squares[pos("e4")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("e8")].0 = Some((Piece::Rook, Color::Black));
+        board.white_king_pos = pos("e4");
+        board.black_king_pos = pos("h8");
+        board.side_to_move = Color::White;
+
+        assert!(board.is_in_check(Color::White), "White should be in check");
+        assert!(
+            !board.is_checkmate(),
+            "White should not be in checkmate (king can move)"
+        );
+    }
+
+    #[test]
+    fn test_not_checkmate_can_capture_attacker() {
+        // King in check but can capture the attacking piece
+        let mut board = Board::empty();
+        board.squares[pos("e1")].0 = Some((Piece::King, Color::White));
+        board.squares[pos("e2")].0 = Some((Piece::Rook, Color::Black)); // King can capture
+        board.white_king_pos = pos("e1");
+        board.black_king_pos = pos("h8");
+        board.side_to_move = Color::White;
+
+        assert!(board.is_in_check(Color::White), "White should be in check");
+        assert!(
+            !board.is_checkmate(),
+            "White should not be in checkmate (can capture rook)"
         );
     }
 
