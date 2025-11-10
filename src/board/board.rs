@@ -620,6 +620,26 @@ impl Board {
         legal_moves.is_empty() && !self.is_in_check(self.side_to_move)
     }
 
+    #[allow(dead_code)]
+    pub fn can_castle_white_kingside(&self) -> bool {
+        !self.white_king_moved && !self.white_kingside_rook_moved
+    }
+
+    #[allow(dead_code)]
+    pub fn can_castle_white_queenside(&self) -> bool {
+        !self.white_king_moved && !self.white_queenside_rook_moved
+    }
+
+    #[allow(dead_code)]
+    pub fn can_castle_black_kingside(&self) -> bool {
+        !self.black_king_moved && !self.black_kingside_rook_moved
+    }
+
+    #[allow(dead_code)]
+    pub fn can_castle_black_queenside(&self) -> bool {
+        !self.black_king_moved && !self.black_queenside_rook_moved
+    }
+
     pub fn print(&self) {
         // Unicode chess symbols
         fn unicode_symbol(piece: Piece, color: Color) -> char {

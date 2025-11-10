@@ -263,7 +263,7 @@ fn get_player_color() -> Color {
 
 fn get_ai_depth() -> u8 {
     loop {
-        print!("Choose AI difficulty (depth 1-5, recommended 3): ");
+        print!("Choose AI difficulty (depth 1-10, recommended 5): ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -272,8 +272,8 @@ fn get_ai_depth() -> u8 {
             .expect("Failed to read input");
 
         match input.trim().parse::<u8>() {
-            Ok(depth) if (1..=5).contains(&depth) => return depth,
-            _ => println!("Invalid choice. Please enter a number between 1 and 5."),
+            Ok(depth) if (1..=10).contains(&depth) => return depth,
+            _ => println!("Invalid choice. Please enter a number between 1 and 10."),
         }
     }
 }

@@ -1,3 +1,5 @@
+use super::transposition_table::TranspositionTable;
+use super::zobrist;
 use crate::board::{Board, ChessMove, Piece};
 use crate::eval::Evaluator;
 
@@ -5,6 +7,28 @@ pub struct Minimax;
 
 impl Minimax {
     pub fn find_best_move(board: &Board, depth: u8) -> Option<ChessMove> {
+        // Create transposition table for this search
+        let mut tt = TranspositionTable::new();
+        let result = Self::find_best_move_with_tt(board, depth, &mut tt);
+
+        // Print transposition table statistics
+        let (hits, misses) = tt.stats();
+        if hits + misses > 0 {
+            let hit_rate = (hits as f64 / (hits + misses) as f64) * 100.0;
+            println!(
+                "TT Stats - Hit rate: {:.1}% ({} hits, {} misses)",
+                hit_rate, hits, misses
+            );
+        }
+
+        result
+    }
+
+    fn find_best_move_with_tt(
+        board: &Board,
+        depth: u8,
+        tt: &mut TranspositionTable,
+    ) -> Option<ChessMove> {
         let legal_moves = board.generate_legal_moves();
 
         if legal_moves.is_empty() {
@@ -23,7 +47,7 @@ impl Minimax {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha);
+            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha, tt);
 
             if score > best_score {
                 best_score = score;
@@ -39,44 +63,67 @@ impl Minimax {
         Some(best_move)
     }
 
-    fn alpha_beta(board: &Board, depth: u8, mut alpha: i32, beta: i32) -> i32 {
+    fn alpha_beta(
+        board: &Board,
+        depth: u8,
+        mut alpha: i32,
+        beta: i32,
+        tt: &mut TranspositionTable,
+    ) -> i32 {
+        // Probe transposition table first
+        let hash = zobrist::compute_hash(board);
+        if let Some(entry) = tt.probe(hash, depth) {
+            return entry.score;
+        }
+
         let legal_moves = board.generate_legal_moves();
 
         // Check for terminal positions first (checkmate or stalemate)
         if legal_moves.is_empty() {
-            if board.is_checkmate() {
+            let score = if board.is_checkmate() {
                 // Losing position - return very negative score
                 // Adjust score by depth to prefer faster checkmates
-                return -100_000 - (depth as i32);
+                -100_000 - (depth as i32)
             } else {
                 // Stalemate - return draw score
-                return 0;
-            }
+                0
+            };
+            // Store terminal position in TT
+            tt.store(hash, depth, score, None);
+            return score;
         }
 
         if depth == 0 {
-            return Evaluator::evaluate(board);
+            let score = Evaluator::evaluate(board);
+            tt.store(hash, depth, score, None);
+            return score;
         }
 
         // Order moves for better pruning efficiency
         let ordered_moves = Self::order_moves(board, legal_moves);
+        let mut best_move = None;
 
         for chess_move in ordered_moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha);
+            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha, tt);
 
             // Beta cutoff - this position is too good, opponent won't allow it
             if score >= beta {
+                tt.store(hash, depth, beta, Some(chess_move));
                 return beta;
             }
 
             // Update alpha if we found a better move
             if score > alpha {
                 alpha = score;
+                best_move = Some(chess_move);
             }
         }
+
+        // Store the result in transposition table
+        tt.store(hash, depth, alpha, best_move);
 
         alpha
     }
@@ -120,9 +167,6 @@ mod tests {
 
     #[test]
     fn test_finds_checkmate_in_one() {
-        // Set up a position where white can checkmate in one move
-        // Position: White King on c7, Black King on a8, White Queen on c6
-        // Checkmate: Qa6# or Qb7# (king has no escape squares)
         let mut board = Board::empty();
         board.squares[pos("c7")].0 = Some((Piece::King, Color::White));
         board.squares[pos("a8")].0 = Some((Piece::King, Color::Black));
@@ -134,7 +178,6 @@ mod tests {
         let best_move = Minimax::find_best_move(&board, 3);
         assert!(best_move.is_some());
 
-        // Queen should move to a6 or b7 for checkmate
         let chess_move = best_move.unwrap();
         let mut test_board = board;
         test_board.apply_move(chess_move);
