@@ -13,7 +13,7 @@ pub struct ChessMove {
     pub from: usize,
     pub to: usize,
     pub capture: bool,
-    pub moveType: ChessMoveType,
+    pub move_type: ChessMoveType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

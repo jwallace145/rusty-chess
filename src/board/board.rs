@@ -19,7 +19,14 @@ pub struct Board {
     pub en_passant_target: Option<usize>,
 }
 
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Board {
+    #[cfg(test)]
     pub fn empty() -> Self {
         Self {
             squares: [Square(None); 64],
@@ -96,11 +103,11 @@ impl Board {
         let mut moves = Vec::new();
 
         for (i, square) in self.squares.iter().enumerate() {
-            if let Some((piece, color)) = square.0 {
-                if color == self.side_to_move {
-                    let piece_moves = self.generate_piece_moves(i, piece, color);
-                    moves.extend(piece_moves);
-                }
+            if let Some((piece, color)) = square.0
+                && color == self.side_to_move
+            {
+                let piece_moves = self.generate_piece_moves(i, piece, color);
+                moves.extend(piece_moves);
             }
         }
 
@@ -130,30 +137,30 @@ impl Board {
         self.squares[chess_move.from].0 = None;
 
         // Handle castling: move the rook as well
-        if chess_move.moveType == ChessMoveType::Castle {
-            if let Some((Piece::King, color)) = moved_piece {
-                match color {
-                    Color::White => {
-                        if chess_move.to == 6 {
-                            // Kingside castling: move rook from h1 (7) to f1 (5)
-                            self.squares[5].0 = self.squares[7].0;
-                            self.squares[7].0 = None;
-                        } else if chess_move.to == 2 {
-                            // Queenside castling: move rook from a1 (0) to d1 (3)
-                            self.squares[3].0 = self.squares[0].0;
-                            self.squares[0].0 = None;
-                        }
+        if chess_move.move_type == ChessMoveType::Castle
+            && let Some((Piece::King, color)) = moved_piece
+        {
+            match color {
+                Color::White => {
+                    if chess_move.to == 6 {
+                        // Kingside castling: move rook from h1 (7) to f1 (5)
+                        self.squares[5].0 = self.squares[7].0;
+                        self.squares[7].0 = None;
+                    } else if chess_move.to == 2 {
+                        // Queenside castling: move rook from a1 (0) to d1 (3)
+                        self.squares[3].0 = self.squares[0].0;
+                        self.squares[0].0 = None;
                     }
-                    Color::Black => {
-                        if chess_move.to == 62 {
-                            // Kingside castling: move rook from h8 (63) to f8 (61)
-                            self.squares[61].0 = self.squares[63].0;
-                            self.squares[63].0 = None;
-                        } else if chess_move.to == 58 {
-                            // Queenside castling: move rook from a8 (56) to d8 (59)
-                            self.squares[59].0 = self.squares[56].0;
-                            self.squares[56].0 = None;
-                        }
+                }
+                Color::Black => {
+                    if chess_move.to == 62 {
+                        // Kingside castling: move rook from h8 (63) to f8 (61)
+                        self.squares[61].0 = self.squares[63].0;
+                        self.squares[63].0 = None;
+                    } else if chess_move.to == 58 {
+                        // Queenside castling: move rook from a8 (56) to d8 (59)
+                        self.squares[59].0 = self.squares[56].0;
+                        self.squares[56].0 = None;
                     }
                 }
             }
@@ -298,7 +305,7 @@ impl Board {
                     from: index,
                     to: forward_idx,
                     capture: false,
-                    moveType: move_type,
+                    move_type,
                 });
 
                 if rank == start_rank {
@@ -309,7 +316,7 @@ impl Board {
                             from: index,
                             to: double_idx,
                             capture: false,
-                            moveType: ChessMoveType::Normal,
+                            move_type: ChessMoveType::Normal,
                         });
                     }
                 }
@@ -319,7 +326,7 @@ impl Board {
         // Diagonal captures
         for df in [-1, 1] {
             let new_file = file as isize + df;
-            if new_file >= 0 && new_file < 8 && new_rank < 8 {
+            if (0..8).contains(&new_file) && new_rank < 8 {
                 let capture_idx = new_rank * 8 + new_file as usize;
                 if let Some((_, target_color)) = self.squares[capture_idx].0 {
                     if target_color != color {
@@ -333,7 +340,7 @@ impl Board {
                             from: index,
                             to: capture_idx,
                             capture: true,
-                            moveType: move_type,
+                            move_type,
                         });
                     }
                 } else if Some(capture_idx) == self.en_passant_target {
@@ -342,7 +349,7 @@ impl Board {
                         from: index,
                         to: capture_idx,
                         capture: true,
-                        moveType: ChessMoveType::EnPassant,
+                        move_type: ChessMoveType::EnPassant,
                     });
                 }
             }
@@ -373,20 +380,20 @@ impl Board {
         for (dr, df) in deltas {
             let new_rank = rank + dr;
             let new_file = file + df;
-            if new_rank >= 0 && new_rank < 8 && new_file >= 0 && new_file < 8 {
+            if (0..8).contains(&new_rank) && (0..8).contains(&new_file) {
                 let to = (new_rank * 8 + new_file) as usize;
                 match self.squares[to].0 {
                     None => moves.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
-                        moveType: ChessMoveType::Normal,
+                        move_type: ChessMoveType::Normal,
                     }),
                     Some((_, target_color)) if target_color != color => moves.push(ChessMove {
                         from: index,
                         to,
                         capture: true,
-                        moveType: ChessMoveType::Normal,
+                        move_type: ChessMoveType::Normal,
                     }),
                     _ => {}
                 }
@@ -435,21 +442,21 @@ impl Board {
         for (dr, df) in deltas {
             let new_rank = rank + dr;
             let new_file = file + df;
-            if new_rank >= 0 && new_rank < 8 && new_file >= 0 && new_file < 8 {
+            if (0..8).contains(&new_rank) && (0..8).contains(&new_file) {
                 let to = (new_rank * 8 + new_file) as usize;
                 match self.squares[to].0 {
                     None => moves.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
-                        moveType: ChessMoveType::Normal,
+                        move_type: ChessMoveType::Normal,
                     }),
                     Some((_, target_color)) if target_color != color => {
                         moves.push(ChessMove {
                             from: index,
                             to,
                             capture: true,
-                            moveType: ChessMoveType::Normal,
+                            move_type: ChessMoveType::Normal,
                         });
                     }
                     _ => {}
@@ -473,7 +480,7 @@ impl Board {
                         from: index,
                         to: 6, // g1
                         capture: false,
-                        moveType: ChessMoveType::Castle,
+                        move_type: ChessMoveType::Castle,
                     });
                 }
 
@@ -491,7 +498,7 @@ impl Board {
                         from: index,
                         to: 2, // c1
                         capture: false,
-                        moveType: ChessMoveType::Castle,
+                        move_type: ChessMoveType::Castle,
                     });
                 }
             }
@@ -509,7 +516,7 @@ impl Board {
                         from: index,
                         to: 62, // g8
                         capture: false,
-                        moveType: ChessMoveType::Castle,
+                        move_type: ChessMoveType::Castle,
                     });
                 }
 
@@ -527,7 +534,7 @@ impl Board {
                         from: index,
                         to: 58, // c8
                         capture: false,
-                        moveType: ChessMoveType::Castle,
+                        move_type: ChessMoveType::Castle,
                     });
                 }
             }
@@ -549,21 +556,21 @@ impl Board {
         for (dr, df) in directions {
             let mut r = rank + dr;
             let mut f = file + df;
-            while r >= 0 && r < 8 && f >= 0 && f < 8 {
+            while (0..8).contains(&r) && (0..8).contains(&f) {
                 let to = (r * 8 + f) as usize;
                 match self.squares[to].0 {
                     None => moves.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
-                        moveType: ChessMoveType::Normal,
+                        move_type: ChessMoveType::Normal,
                     }),
                     Some((_, target_color)) if target_color != color => {
                         moves.push(ChessMove {
                             from: index,
                             to,
                             capture: true,
-                            moveType: ChessMoveType::Normal,
+                            move_type: ChessMoveType::Normal,
                         });
                         break;
                     }
@@ -579,12 +586,12 @@ impl Board {
 
     pub fn is_square_attacked(&self, square: usize, attacker_color: Color) -> bool {
         for (i, sq) in self.squares.iter().enumerate() {
-            if let Some((piece, color)) = sq.0 {
-                if color == attacker_color {
-                    let attacks = self.generate_piece_moves(i, piece, color);
-                    if attacks.iter().any(|m| m.to == square) {
-                        return true;
-                    }
+            if let Some((piece, color)) = sq.0
+                && color == attacker_color
+            {
+                let attacks = self.generate_piece_moves(i, piece, color);
+                if attacks.iter().any(|m| m.to == square) {
+                    return true;
                 }
             }
         }
@@ -696,8 +703,8 @@ mod tests {
             Piece::Rook,
         ];
 
-        for i in 0..8 {
-            assert_eq!(board.squares[i].0, Some((white_back_rank[i], Color::White)));
+        for (i, &piece) in white_back_rank.iter().enumerate() {
+            assert_eq!(board.squares[i].0, Some((piece, Color::White)));
         }
 
         for i in 8..16 {
@@ -768,13 +775,13 @@ mod tests {
                 from: pos("e2"),
                 to: pos("e3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("e2"),
                 to: pos("e4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -798,7 +805,7 @@ mod tests {
             from: pos("e3"),
             to: pos("e4"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         }];
 
         board.squares[from].0 = Some((piece, color));
@@ -825,7 +832,7 @@ mod tests {
             from: pos("h2"),
             to: pos("h3"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         }];
 
         let moves = board.generate_pawn_moves(pos("h2"), Color::White);
@@ -859,19 +866,19 @@ mod tests {
                 from: pos("d4"),
                 to: pos("d5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e5"),
                 capture: true,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c5"),
                 capture: true,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -902,14 +909,14 @@ mod tests {
                 from: pos("e5"),
                 to: pos("e6"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             // En passant capture to d6
             ChessMove {
                 from: pos("e5"),
                 to: pos("d6"),
                 capture: true,
-                moveType: ChessMoveType::EnPassant,
+                move_type: ChessMoveType::EnPassant,
             },
         ];
 
@@ -937,14 +944,14 @@ mod tests {
                 from: pos("d4"),
                 to: pos("d3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             // En passant capture to e3
             ChessMove {
                 from: pos("d4"),
                 to: pos("e3"),
                 capture: true,
-                moveType: ChessMoveType::EnPassant,
+                move_type: ChessMoveType::EnPassant,
             },
         ];
 
@@ -969,7 +976,7 @@ mod tests {
             from: pos("e7"),
             to: pos("e8"),
             capture: false,
-            moveType: ChessMoveType::Promotion(Piece::Queen),
+            move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
         let moves = board.generate_pawn_moves(pos("e7"), Color::White);
@@ -995,21 +1002,21 @@ mod tests {
                 from: pos("d7"),
                 to: pos("d8"),
                 capture: false,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
             // Capture promotion to e8
             ChessMove {
                 from: pos("d7"),
                 to: pos("e8"),
                 capture: true,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
             // Capture promotion to c8
             ChessMove {
                 from: pos("d7"),
                 to: pos("c8"),
                 capture: true,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
         ];
 
@@ -1031,7 +1038,7 @@ mod tests {
             from: pos("e2"),
             to: pos("e1"),
             capture: false,
-            moveType: ChessMoveType::Promotion(Piece::Queen),
+            move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
         let moves = board.generate_pawn_moves(pos("e2"), Color::Black);
@@ -1057,21 +1064,21 @@ mod tests {
                 from: pos("d2"),
                 to: pos("d1"),
                 capture: false,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
             // Capture promotion to e1
             ChessMove {
                 from: pos("d2"),
                 to: pos("e1"),
                 capture: true,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
             // Capture promotion to c1
             ChessMove {
                 from: pos("d2"),
                 to: pos("c1"),
                 capture: true,
-                moveType: ChessMoveType::Promotion(Piece::Queen),
+                move_type: ChessMoveType::Promotion(Piece::Queen),
             },
         ];
 
@@ -1098,7 +1105,7 @@ mod tests {
                 from: pos("a1"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1107,7 +1114,7 @@ mod tests {
                 from: pos("a1"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1136,7 +1143,7 @@ mod tests {
                 from: pos("a1"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1169,7 +1176,7 @@ mod tests {
                 from: pos("a1"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1178,7 +1185,7 @@ mod tests {
                 from: pos("a1"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1186,7 +1193,7 @@ mod tests {
             from: pos("a1"),
             to: pos("h1"),
             capture: true,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
 
         board.squares[from1].0 = Some((piece1, color1));
@@ -1218,19 +1225,19 @@ mod tests {
                 from: pos("a2"),
                 to: pos("b4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("a2"),
                 to: pos("c3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("a2"),
                 to: pos("c1"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -1260,13 +1267,13 @@ mod tests {
                 from: pos("a2"),
                 to: pos("b4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("a2"),
                 to: pos("c3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -1297,19 +1304,19 @@ mod tests {
                 from: pos("a2"),
                 to: pos("b4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("a2"),
                 to: pos("c3"),
                 capture: true,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("a2"),
                 to: pos("c1"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -1337,7 +1344,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1347,7 +1354,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1357,7 +1364,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1367,7 +1374,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1397,7 +1404,7 @@ mod tests {
             from: pos("d4"),
             to: pos("e5"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
 
         // diagonal up-left
@@ -1406,7 +1413,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1416,7 +1423,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1426,7 +1433,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1459,13 +1466,13 @@ mod tests {
             from: pos("d4"),
             to: pos("e5"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
         expected.push(ChessMove {
             from: pos("d4"),
             to: pos("f6"),
             capture: true,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
 
         // diagonal up-left
@@ -1474,7 +1481,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1484,7 +1491,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1494,7 +1501,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1525,7 +1532,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1535,7 +1542,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1545,7 +1552,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1555,7 +1562,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1565,7 +1572,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1575,7 +1582,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1585,7 +1592,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1595,7 +1602,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1626,7 +1633,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1636,7 +1643,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1645,7 +1652,7 @@ mod tests {
             from: pos("d4"),
             to: pos("d5"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
 
         // vertical down
@@ -1654,7 +1661,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1664,7 +1671,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1674,7 +1681,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1684,7 +1691,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1694,7 +1701,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1728,7 +1735,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1738,7 +1745,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1747,13 +1754,13 @@ mod tests {
             from: pos("d4"),
             to: pos("d5"),
             capture: false,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
         expected.push(ChessMove {
             from: pos("d4"),
             to: pos("d6"),
             capture: true,
-            moveType: ChessMoveType::Normal,
+            move_type: ChessMoveType::Normal,
         });
 
         // vertical down
@@ -1762,7 +1769,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1772,7 +1779,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1782,7 +1789,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1792,7 +1799,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1802,7 +1809,7 @@ mod tests {
                 from: pos("d4"),
                 to: pos(square),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             });
         }
 
@@ -1830,49 +1837,49 @@ mod tests {
                 from: pos("d4"),
                 to: pos("d5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("d3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -1900,43 +1907,43 @@ mod tests {
                 from: pos("d4"),
                 to: pos("d5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("d3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -1967,49 +1974,49 @@ mod tests {
                 from: pos("d4"),
                 to: pos("d5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("d3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c4"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e5"),
                 capture: true,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("e3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c5"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
             ChessMove {
                 from: pos("d4"),
                 to: pos("c3"),
                 capture: false,
-                moveType: ChessMoveType::Normal,
+                move_type: ChessMoveType::Normal,
             },
         ];
 
@@ -2038,7 +2045,7 @@ mod tests {
             from: pos("e1"),
             to: pos("g1"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             moves.contains(&kingside_castle),
@@ -2057,7 +2064,7 @@ mod tests {
             from: pos("e1"),
             to: pos("c1"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             moves.contains(&queenside_castle),
@@ -2076,7 +2083,7 @@ mod tests {
             from: pos("e8"),
             to: pos("g8"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             moves.contains(&kingside_castle),
@@ -2095,7 +2102,7 @@ mod tests {
             from: pos("e8"),
             to: pos("c8"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             moves.contains(&queenside_castle),
@@ -2115,7 +2122,7 @@ mod tests {
             from: pos("e1"),
             to: pos("g1"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             !moves.contains(&kingside_castle),
@@ -2135,7 +2142,7 @@ mod tests {
             from: pos("e1"),
             to: pos("g1"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             !moves.contains(&kingside_castle),
@@ -2155,7 +2162,7 @@ mod tests {
             from: pos("e1"),
             to: pos("g1"),
             capture: false,
-            moveType: ChessMoveType::Castle,
+            move_type: ChessMoveType::Castle,
         };
         assert!(
             !moves.contains(&kingside_castle),

@@ -1,0 +1,83 @@
+# Pre-commit hooks for rusty-chess
+# See https://pre-commit.com for more information
+
+repos:
+  # Rust formatting
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      # Format code with rustfmt
+      - id: fmt
+        name: cargo fmt
+        description: Format Rust code with rustfmt
+        args: ['--all', '--', '--check']
+
+      # Lint with clippy
+      - id: clippy
+        name: cargo clippy
+        description: Lint Rust code with clippy
+        args: ['--all-targets', '--all-features', '--', '-D', 'warnings']
+
+  # Additional Rust checks using local hooks
+  - repo: local
+    hooks:
+      # Run cargo check for compilation errors
+      - id: cargo-check
+        name: cargo check
+        description: Check Rust code compiles
+        entry: cargo check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      # Run unit tests
+      - id: cargo-test
+        name: cargo test
+        description: Run Rust unit tests
+        entry: cargo test
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      # Check for security vulnerabilities in dependencies
+      - id: cargo-audit
+        name: cargo audit
+        description: Check for known security vulnerabilities
+        entry: bash -c 'cargo audit 2>/dev/null || true'
+        language: system
+        pass_filenames: false
+        files: Cargo\.(toml|lock)$
+        stages: [commit]
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent committing large files
+      - id: check-added-large-files
+        args:
+          - '--maxkb=500'
+
+      # Check for merge conflicts
+      - id: check-merge-conflict
+
+      # Check YAML syntax
+      - id: check-yaml
+
+      # Check TOML syntax (for Cargo.toml)
+      - id: check-toml
+
+      # Trim trailing whitespace
+      - id: trailing-whitespace
+        args:
+          - '--markdown-linebreak-ext=md'
+
+      # Ensure files end with newline
+      - id: end-of-file-fixer
+
+      # Check for files that would conflict on case-insensitive filesystems
+      - id: check-case-conflict
+
+# Configuration
+default_stages: [commit]
+fail_fast: false

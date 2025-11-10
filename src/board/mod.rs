@@ -1,4 +1,5 @@
-pub mod board;
+#[allow(clippy::module_inception)]
+mod board;
 pub mod chess_move;
 pub mod color;
 pub mod piece;

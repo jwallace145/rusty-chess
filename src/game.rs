@@ -6,6 +6,12 @@ pub struct Game {
     move_history: Vec<ChessMoveState>,
 }
 
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Game {
     pub fn new() -> Self {
         Self {
@@ -153,7 +159,7 @@ impl Game {
         }
 
         // Add a newline if we didn't end on a complete line
-        if move_strings.len() % moves_per_line != 0 {
+        if !move_strings.len().is_multiple_of(moves_per_line) {
             println!();
         }
 
