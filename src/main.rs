@@ -1,5 +1,6 @@
 mod board;
-use board::{Board, ChessMove};
+use board::Board;
+use board::chess_move::{ChessMove, ChessMoveType};
 
 fn main() {
     let mut board = Board::new();
@@ -22,11 +23,13 @@ fn main() {
             from: 12,
             to: 28,
             capture: false,
+            moveType: ChessMoveType::Normal,
         }, // e2 -> e4
         ChessMove {
             from: 52,
             to: 36,
             capture: false,
+            moveType: ChessMoveType::Normal,
         }, // e7 -> e5
     ];
 
