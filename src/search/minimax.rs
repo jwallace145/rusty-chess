@@ -1,4 +1,4 @@
-use crate::board::{Board, ChessMove};
+use crate::board::{Board, ChessMove, Piece};
 use crate::eval::Evaluator;
 
 pub struct Minimax;
@@ -11,25 +11,35 @@ impl Minimax {
             return None;
         }
 
-        let mut best_move = legal_moves[0];
-        let mut best_score = i32::MIN;
+        // Order moves for better alpha-beta performance
+        let ordered_moves = Self::order_moves(board, legal_moves);
 
-        for chess_move in legal_moves {
+        let mut best_move = ordered_moves[0];
+        let mut best_score = -200_000;
+        let mut alpha = -200_000;
+        let beta = 200_000;
+
+        for chess_move in ordered_moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::minimax(&board_copy, depth - 1);
+            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha);
 
             if score > best_score {
                 best_score = score;
                 best_move = chess_move;
+            }
+
+            // Update alpha for the root search
+            if score > alpha {
+                alpha = score;
             }
         }
 
         Some(best_move)
     }
 
-    fn minimax(board: &Board, depth: u8) -> i32 {
+    fn alpha_beta(board: &Board, depth: u8, mut alpha: i32, beta: i32) -> i32 {
         let legal_moves = board.generate_legal_moves();
 
         // Check for terminal positions first (checkmate or stalemate)
@@ -48,20 +58,57 @@ impl Minimax {
             return Evaluator::evaluate(board);
         }
 
-        let mut best_score = i32::MIN;
+        // Order moves for better pruning efficiency
+        let ordered_moves = Self::order_moves(board, legal_moves);
 
-        for chess_move in legal_moves {
+        for chess_move in ordered_moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::minimax(&board_copy, depth - 1);
+            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha);
 
-            if score > best_score {
-                best_score = score;
+            // Beta cutoff - this position is too good, opponent won't allow it
+            if score >= beta {
+                return beta;
+            }
+
+            // Update alpha if we found a better move
+            if score > alpha {
+                alpha = score;
             }
         }
 
-        best_score
+        alpha
+    }
+
+    /// Order moves to search promising moves first (improves alpha-beta pruning).
+    /// Priority: captures (high-value victims first), then non-captures.
+    fn order_moves(board: &Board, mut moves: Vec<ChessMove>) -> Vec<ChessMove> {
+        moves.sort_by_key(|m| {
+            if m.capture {
+                // Prioritize capturing high-value pieces
+                let victim_value = if let Some((piece, _)) = board.squares[m.to].0 {
+                    Self::piece_value(piece)
+                } else {
+                    100 // En passant captures a pawn
+                };
+                -victim_value // Negative for descending order
+            } else {
+                0 // Non-captures have neutral priority
+            }
+        });
+        moves
+    }
+
+    fn piece_value(piece: Piece) -> i32 {
+        match piece {
+            Piece::Pawn => 100,
+            Piece::Knight => 320,
+            Piece::Bishop => 330,
+            Piece::Rook => 500,
+            Piece::Queen => 900,
+            Piece::King => 0,
+        }
     }
 }
 
