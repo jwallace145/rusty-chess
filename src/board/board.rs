@@ -10,6 +10,13 @@ pub struct Board {
 }
 
 impl Board {
+    pub fn empty() -> Self {
+        Self {
+            squares: [Square(None); 64],
+            side_to_move: Color::White,
+        }
+    }
+
     pub fn new() -> Self {
         use Color::*;
         use Piece::*;
@@ -71,13 +78,13 @@ impl Board {
             chess_move,
             moved_piece,
             captured_piece,
-            previous_side_to_move
+            previous_side_to_move,
         }
     }
 
     pub fn undo_move(&mut self, state: ChessMoveState) {
         let chess_move = state.chess_move;
-        
+
         self.squares[chess_move.from].0 = state.moved_piece;
         self.squares[chess_move.to].0 = state.captured_piece;
         self.side_to_move = state.previous_side_to_move;
@@ -346,6 +353,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_empty_board_initialization() {
+        let board = Board::empty();
+
+        assert_eq!(board.side_to_move, Color::White);
+
+        for i in 0..64 {
+            assert_eq!(board.squares[i].0, None);
+        }
+    }
+
+    #[test]
     fn test_board_initialization() {
         let board = Board::new();
 
@@ -420,5 +438,973 @@ mod tests {
         let mut modified_board = copied_board;
         modified_board.switch_side();
         assert_ne!(board.side_to_move, modified_board.side_to_move)
+    }
+
+    #[test]
+    fn test_generate_pawn_moves() {
+        let mut board = Board::empty();
+
+        let piece = Piece::Pawn;
+        let color = Color::White;
+        let from = pos("e2");
+        let expected = vec![
+            ChessMove {
+                from: pos("e2"),
+                to: pos("e3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("e2"),
+                to: pos("e4"),
+                capture: false,
+            },
+        ];
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_pawn_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_pawn_moves_single_move_after_start_rank() {
+        let mut board = Board::empty();
+
+        let piece = Piece::Pawn;
+        let color = Color::White;
+        let from = pos("e3");
+        let expected = vec![ChessMove {
+            from: pos("e3"),
+            to: pos("e4"),
+            capture: false,
+        }];
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_pawn_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_pawn_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::Pawn;
+        let color1 = Color::White;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let color2 = Color::Black;
+        let from2 = pos("e5");
+        let piece3 = Piece::Pawn;
+        let color3 = Color::Black;
+        let from3 = pos("c5");
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+        board.squares[from3].0 = Some((piece3, color3));
+
+        let expected = vec![
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e5"),
+                capture: true,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c5"),
+                capture: true,
+            },
+        ];
+
+        let moves = board.generate_pawn_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_rook_moves() {
+        let mut board = Board::empty();
+
+        let piece = Piece::Rook;
+        let color = Color::White;
+        let from = pos("a1");
+
+        let mut expected = vec![];
+
+        for square in ["a2", "a3", "a4", "a5", "a6", "a7", "a8"] {
+            expected.push(ChessMove {
+                from: pos("a1"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        for square in ["b1", "c1", "d1", "e1", "f1", "g1", "h1"] {
+            expected.push(ChessMove {
+                from: pos("a1"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_rook_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_rook_moves_blocked_by_teammate() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::Rook;
+        let from1 = pos("a1");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("b1");
+
+        let mut expected = vec![];
+        for square in ["a2", "a3", "a4", "a5", "a6", "a7", "a8"] {
+            expected.push(ChessMove {
+                from: pos("a1"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let moves = board.generate_rook_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_rook_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::Rook;
+        let color1 = Color::White;
+        let from1 = pos("a1");
+        let piece2 = Piece::Rook;
+        let color2 = Color::Black;
+        let from2 = pos("h1");
+
+        let mut expected = vec![];
+
+        for square in ["a2", "a3", "a4", "a5", "a6", "a7", "a8"] {
+            expected.push(ChessMove {
+                from: pos("a1"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        for square in ["b1", "c1", "d1", "e1", "f1", "g1"] {
+            expected.push(ChessMove {
+                from: pos("a1"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        expected.push(ChessMove {
+            from: pos("a1"),
+            to: pos("h1"),
+            capture: true,
+        });
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+
+        let moves = board.generate_rook_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_knight_moves() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::Knight;
+        let from1 = pos("a2");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("b2");
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let expected = vec![
+            ChessMove {
+                from: pos("a2"),
+                to: pos("b4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("a2"),
+                to: pos("c3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("a2"),
+                to: pos("c1"),
+                capture: false,
+            },
+        ];
+
+        let moves = board.generate_knight_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_knight_moves_blocked_by_teammate() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::Knight;
+        let from1 = pos("a2");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("c1");
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let expected = vec![
+            ChessMove {
+                from: pos("a2"),
+                to: pos("b4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("a2"),
+                to: pos("c3"),
+                capture: false,
+            },
+        ];
+
+        let moves = board.generate_knight_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_knight_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::Knight;
+        let color1 = Color::White;
+        let from1 = pos("a2");
+        let piece2 = Piece::Pawn;
+        let color2 = Color::Black;
+        let from2 = pos("c3");
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+
+        let expected = vec![
+            ChessMove {
+                from: pos("a2"),
+                to: pos("b4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("a2"),
+                to: pos("c3"),
+                capture: true,
+            },
+            ChessMove {
+                from: pos("a2"),
+                to: pos("c1"),
+                capture: false,
+            },
+        ];
+
+        let moves = board.generate_knight_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_bishop_moves() {
+        let mut board = Board::empty();
+
+        let piece = Piece::Bishop;
+        let color = Color::White;
+        let from = pos("d4");
+
+        let mut expected = vec![];
+
+        // diagonal up-right
+        for square in ["e5", "f6", "g7", "h8"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_bishop_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_bishop_moves_blocked_by_teammate() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::Bishop;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("f6");
+
+        let mut expected = vec![];
+
+        // diagonal up-right (blocked at f6)
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("e5"),
+            capture: false,
+        });
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let moves = board.generate_bishop_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_bishop_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::Bishop;
+        let color1 = Color::White;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let color2 = Color::Black;
+        let from2 = pos("f6");
+
+        let mut expected = vec![];
+
+        // diagonal up-right (capture at f6)
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("e5"),
+            capture: false,
+        });
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("f6"),
+            capture: true,
+        });
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+
+        let moves = board.generate_bishop_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_queen_moves() {
+        let mut board = Board::empty();
+
+        let piece = Piece::Queen;
+        let color = Color::White;
+        let from = pos("d4");
+
+        let mut expected = vec![];
+
+        // horizontal right
+        for square in ["e4", "f4", "g4", "h4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // horizontal left
+        for square in ["c4", "b4", "a4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // vertical up
+        for square in ["d5", "d6", "d7", "d8"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // vertical down
+        for square in ["d3", "d2", "d1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-right
+        for square in ["e5", "f6", "g7", "h8"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_queen_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_queen_moves_blocked_by_teammate() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::Queen;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("d6");
+
+        let mut expected = vec![];
+
+        // horizontal right
+        for square in ["e4", "f4", "g4", "h4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // horizontal left
+        for square in ["c4", "b4", "a4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // vertical up (blocked at d6)
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("d5"),
+            capture: false,
+        });
+
+        // vertical down
+        for square in ["d3", "d2", "d1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-right
+        for square in ["e5", "f6", "g7", "h8"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let moves = board.generate_queen_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_queen_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::Queen;
+        let color1 = Color::White;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let color2 = Color::Black;
+        let from2 = pos("d6");
+
+        let mut expected = vec![];
+
+        // horizontal right
+        for square in ["e4", "f4", "g4", "h4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // horizontal left
+        for square in ["c4", "b4", "a4"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // vertical up (capture at d6)
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("d5"),
+            capture: false,
+        });
+        expected.push(ChessMove {
+            from: pos("d4"),
+            to: pos("d6"),
+            capture: true,
+        });
+
+        // vertical down
+        for square in ["d3", "d2", "d1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-right
+        for square in ["e5", "f6", "g7", "h8"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal up-left
+        for square in ["c5", "b6", "a7"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-right
+        for square in ["e3", "f2", "g1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        // diagonal down-left
+        for square in ["c3", "b2", "a1"] {
+            expected.push(ChessMove {
+                from: pos("d4"),
+                to: pos(square),
+                capture: false,
+            });
+        }
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+
+        let moves = board.generate_queen_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_king_moves() {
+        let mut board = Board::empty();
+
+        let piece = Piece::King;
+        let color = Color::White;
+        let from = pos("d4");
+
+        let expected = vec![
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c3"),
+                capture: false,
+            },
+        ];
+
+        board.squares[from].0 = Some((piece, color));
+        let moves = board.generate_king_moves(from, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_king_moves_blocked_by_teammate() {
+        let mut board = Board::empty();
+
+        let color = Color::White;
+        let piece1 = Piece::King;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let from2 = pos("e5");
+
+        let expected = vec![
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c3"),
+                capture: false,
+            },
+        ];
+
+        board.squares[from1].0 = Some((piece1, color));
+        board.squares[from2].0 = Some((piece2, color));
+
+        let moves = board.generate_king_moves(from1, color);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    #[test]
+    fn test_generate_king_moves_capture_opponent() {
+        let mut board = Board::empty();
+
+        let piece1 = Piece::King;
+        let color1 = Color::White;
+        let from1 = pos("d4");
+        let piece2 = Piece::Pawn;
+        let color2 = Color::Black;
+        let from2 = pos("e5");
+
+        let expected = vec![
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("d3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c4"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e5"),
+                capture: true,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("e3"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c5"),
+                capture: false,
+            },
+            ChessMove {
+                from: pos("d4"),
+                to: pos("c3"),
+                capture: false,
+            },
+        ];
+
+        board.squares[from1].0 = Some((piece1, color1));
+        board.squares[from2].0 = Some((piece2, color2));
+
+        let moves = board.generate_king_moves(from1, color1);
+
+        assert_eq!(moves.len(), expected.len());
+        for expected_move in &expected {
+            assert!(moves.contains(expected_move));
+        }
+    }
+
+    fn pos(s: &str) -> usize {
+        let bytes = s.as_bytes();
+        let file = (bytes[0] - b'a') as usize;
+        let rank = (bytes[1] - b'1') as usize;
+        rank * 8 + file
     }
 }
