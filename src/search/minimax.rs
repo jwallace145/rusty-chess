@@ -262,7 +262,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         // Create a TT and metrics for the test
-        let mut tt = TranspositionTable::new();
+        let mut tt = TranspositionTable::new_with_entries(1024);
         let mut metrics = SearchMetrics::new();
         let mut history = SearchHistory::new();
         let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
@@ -296,7 +296,7 @@ mod tests {
             move_type: ChessMoveType::Normal,
         });
 
-        let mut tt = TranspositionTable::new();
+        let mut tt = TranspositionTable::new_with_entries(1024);
         let mut metrics = SearchMetrics::new();
         let mut history = SearchHistory::new();
         let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);

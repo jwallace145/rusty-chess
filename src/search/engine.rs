@@ -19,7 +19,7 @@ impl Default for ChessEngine {
 impl ChessEngine {
     pub fn new() -> Self {
         Self {
-            tt: TranspositionTable::new(),
+            tt: TranspositionTable::default(),
         }
     }
 
@@ -75,9 +75,11 @@ impl ChessEngine {
 
         // Transposition table stats
         let (hits, misses) = self.tt.stats();
-        let tt_size = self.tt.size();
+        let tt_size_entries = self.tt.size();
+        let tt_size_bytes = self.tt.memory_usage();
         println!("\n--- Transposition Table ---");
-        println!("TT size: {} entries", tt_size);
+        println!("TT size (entries): {} entries", tt_size_entries);
+        println!("TT size (bytes): {}", tt_size_bytes);
         println!("TT hits: {}", hits);
         println!("TT misses: {}", misses);
 
