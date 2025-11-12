@@ -1,0 +1,491 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="454" onload="init(evt)" viewBox="0 0 1200 454" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:fg="http://github.com/jonhoo/inferno"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:monospace; font-size:12px }
+#title { text-anchor:middle; font-size:17px; }
+#matched { text-anchor:end; }
+#search { text-anchor:end; opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[
+        var nametype = 'Function:';
+        var fontsize = 12;
+        var fontwidth = 0.59;
+        var xpad = 10;
+        var inverted = false;
+        var searchcolor = 'rgb(230,0,230)';
+        var fluiddrawing = true;
+        var truncate_text_right = false;
+    ]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames, known_font_width;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    known_font_width = get_monospace_width(frames);
+    total_samples = parseInt(frames.attributes.total_samples.value);
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[*|x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+            svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            update_text_for_elements(frames.children);
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad;
+            matchedtxt.attributes.x.value = svgWidth - xpad;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes["fg:x"]) {
+            var params = get_params()
+            params.x = el.attributes["fg:x"].value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["fg:orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("fg:orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["fg:orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["fg:orig_" + attr].value;
+    e.removeAttribute("fg:orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function get_monospace_width(frames) {
+    // Given the id="frames" element, return the width of text characters if
+    // this is a monospace font, otherwise return 0.
+    text = find_child(frames.children[0], "text");
+    originalContent = text.textContent;
+    text.textContent = "!";
+    bangWidth = text.getComputedTextLength();
+    text.textContent = "W";
+    wWidth = text.getComputedTextLength();
+    text.textContent = originalContent;
+    if (bangWidth === wWidth) {
+        return bangWidth;
+    } else {
+        return 0;
+    }
+}
+function update_text_for_elements(elements) {
+    // In order to render quickly in the browser, you want to do one pass of
+    // reading attributes, and one pass of mutating attributes. See
+    // https://web.dev/avoid-large-complex-layouts-and-layout-thrashing/ for details.
+
+    // Fall back to inefficient calculation, if we're variable-width font.
+    // TODO This should be optimized somehow too.
+    if (known_font_width === 0) {
+        for (var i = 0; i < elements.length; i++) {
+            update_text(elements[i]);
+        }
+        return;
+    }
+
+    var textElemNewAttributes = [];
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var r = find_child(e, "rect");
+        var t = find_child(e, "text");
+        var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+        var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+        var newX = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+        // Smaller than this size won't fit anything
+        if (w < 2 * known_font_width) {
+            textElemNewAttributes.push([newX, ""]);
+            continue;
+        }
+
+        // Fit in full text width
+        if (txt.length * known_font_width < w) {
+            textElemNewAttributes.push([newX, txt]);
+            continue;
+        }
+
+        var substringLength = Math.floor(w / known_font_width) - 2;
+        if (truncate_text_right) {
+            // Truncate the right side of the text.
+            textElemNewAttributes.push([newX, txt.substring(0, substringLength) + ".."]);
+            continue;
+        } else {
+            // Truncate the left side of the text.
+            textElemNewAttributes.push([newX, ".." + txt.substring(txt.length - substringLength, txt.length)]);
+            continue;
+        }
+    }
+
+    console.assert(textElemNewAttributes.length === elements.length, "Resize failed, please file a bug at https://github.com/jonhoo/inferno/");
+
+    // Now that we know new textContent, set it all in one go so we don't refresh a bazillion times.
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var values = textElemNewAttributes[i];
+        var t = find_child(e, "text");
+        t.attributes.x.value = values[0];
+        t.textContent = values[1];
+    }
+}
+
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * parseInt(e.attributes["fg:x"].value) / total_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / total_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, zoomed_width_samples) {
+    if (e.tagName == "text") {
+        var parent_x = parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value);
+        e.attributes.x.value = format_percent(parent_x + (100 * 3 / frames.attributes.width.value));
+    } else if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * (parseInt(e.attributes["fg:x"].value) - x) / zoomed_width_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / zoomed_width_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, zoomed_width_samples);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseInt(attr["fg:w"].value);
+    var xmin = parseInt(attr["fg:x"].value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    var to_update_text = [];
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseInt(a["fg:x"].value);
+        var ew = parseInt(a["fg:w"].value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                to_update_text.push(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, width);
+                to_update_text.push(e);
+            }
+        }
+    }
+    update_text_for_elements(to_update_text);
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+    }
+    update_text_for_elements(el);
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        // Skip over frames which are either not visible, or below the zoomed-to frame
+        if (e.classList.contains("hide") || e.classList.contains("parent")) {
+            continue;
+        }
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseInt(rect.attributes["fg:w"].value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseInt(rect.attributes["fg:x"].value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    for (var k in keys) {
+        var x = parseInt(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="454" fill="url(#background)"/><text id="title" fill="rgb(0,0,0)" x="50.0000%" y="24.00">Flame Graph</text><text id="details" fill="rgb(0,0,0)" x="10" y="437.00"> </text><text id="unzoom" class="hide" fill="rgb(0,0,0)" x="10" y="24.00">Reset Zoom</text><text id="search" fill="rgb(0,0,0)" x="1190" y="24.00">Search</text><text id="matched" fill="rgb(0,0,0)" x="1190" y="437.00"> </text><svg id="frames" x="10" width="1180" total_samples="2860"><g><title>dyld4::ExternallyViewableState::setDyldState(unsigned char) (1 samples, 0.03%)</title><rect x="0.0000%" y="357" width="0.0350%" height="15" fill="rgb(227,0,7)" fg:x="0" fg:w="1"/><text x="0.2500%" y="367.50"></text></g><g><title>dyld4::ExternallyViewableState::generateAtlas(lsl::Allocator&amp;) (1 samples, 0.03%)</title><rect x="0.0000%" y="341" width="0.0350%" height="15" fill="rgb(217,0,24)" fg:x="0" fg:w="1"/><text x="0.2500%" y="351.50"></text></g><g><title>dyld4::ExternallyViewableState::generateCompactInfo(lsl::Allocator&amp;, AAREncoder&amp;) (1 samples, 0.03%)</title><rect x="0.0000%" y="325" width="0.0350%" height="15" fill="rgb(221,193,54)" fg:x="0" fg:w="1"/><text x="0.2500%" y="335.50"></text></g><g><title>dyld4::Atlas::ProcessSnapshot::serialize() (1 samples, 0.03%)</title><rect x="0.0000%" y="309" width="0.0350%" height="15" fill="rgb(248,212,6)" fg:x="0" fg:w="1"/><text x="0.2500%" y="319.50"></text></g><g><title>dyld4::Atlas::ProcessSnapshot::Serializer::serialize() (1 samples, 0.03%)</title><rect x="0.0000%" y="293" width="0.0350%" height="15" fill="rgb(208,68,35)" fg:x="0" fg:w="1"/><text x="0.2500%" y="303.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="0.0000%" y="277" width="0.0350%" height="15" fill="rgb(232,128,0)" fg:x="0" fg:w="1"/><text x="0.2500%" y="287.50"></text></g><g><title>dyld4::prepare(dyld4::APIs&amp;, mach_o::Header const*) (2 samples, 0.07%)</title><rect x="0.0000%" y="373" width="0.0699%" height="15" fill="rgb(207,160,47)" fg:x="0" fg:w="2"/><text x="0.2500%" y="383.50"></text></g><g><title>dyld4::JustInTimeLoader::makeLaunchLoader(Diagnostics&amp;, dyld4::RuntimeState&amp;) (1 samples, 0.03%)</title><rect x="0.0350%" y="357" width="0.0350%" height="15" fill="rgb(228,23,34)" fg:x="1" fg:w="1"/><text x="0.2850%" y="367.50"></text></g><g><title>dyld4::SyscallDelegate::fileExists(char const*, dyld4::FileID*, int*) const (1 samples, 0.03%)</title><rect x="0.0350%" y="341" width="0.0350%" height="15" fill="rgb(218,30,26)" fg:x="1" fg:w="1"/><text x="0.2850%" y="351.50"></text></g><g><title>dyld3::stat(char const*, stat*) (1 samples, 0.03%)</title><rect x="0.0350%" y="325" width="0.0350%" height="15" fill="rgb(220,122,19)" fg:x="1" fg:w="1"/><text x="0.2850%" y="335.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="0.0350%" y="309" width="0.0350%" height="15" fill="rgb(250,228,42)" fg:x="1" fg:w="1"/><text x="0.2850%" y="319.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (1 samples, 0.03%)</title><rect x="0.2797%" y="245" width="0.0350%" height="15" fill="rgb(240,193,28)" fg:x="8" fg:w="1"/><text x="0.5297%" y="255.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (1 samples, 0.03%)</title><rect x="0.2797%" y="229" width="0.0350%" height="15" fill="rgb(216,20,37)" fg:x="8" fg:w="1"/><text x="0.5297%" y="239.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (6 samples, 0.21%)</title><rect x="0.3497%" y="229" width="0.2098%" height="15" fill="rgb(206,188,39)" fg:x="10" fg:w="6"/><text x="0.5997%" y="239.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (1 samples, 0.03%)</title><rect x="0.5245%" y="213" width="0.0350%" height="15" fill="rgb(217,207,13)" fg:x="15" fg:w="1"/><text x="0.7745%" y="223.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (1 samples, 0.03%)</title><rect x="0.5594%" y="229" width="0.0350%" height="15" fill="rgb(231,73,38)" fg:x="16" fg:w="1"/><text x="0.8094%" y="239.50"></text></g><g><title>_xzm_free (3 samples, 0.10%)</title><rect x="0.5944%" y="213" width="0.1049%" height="15" fill="rgb(225,20,46)" fg:x="17" fg:w="3"/><text x="0.8444%" y="223.50"></text></g><g><title>DYLD-STUB$$free (1 samples, 0.03%)</title><rect x="1.1189%" y="197" width="0.0350%" height="15" fill="rgb(210,31,41)" fg:x="32" fg:w="1"/><text x="1.3689%" y="207.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="1.1538%" y="197" width="0.0699%" height="15" fill="rgb(221,200,47)" fg:x="33" fg:w="2"/><text x="1.4038%" y="207.50"></text></g><g><title>alloc::raw_vec::RawVecInner&lt;A&gt;::reserve::do_reserve_and_handle (1 samples, 0.03%)</title><rect x="1.2587%" y="181" width="0.0350%" height="15" fill="rgb(226,26,5)" fg:x="36" fg:w="1"/><text x="1.5087%" y="191.50"></text></g><g><title>alloc::raw_vec::finish_grow (1 samples, 0.03%)</title><rect x="1.2587%" y="165" width="0.0350%" height="15" fill="rgb(249,33,26)" fg:x="36" fg:w="1"/><text x="1.5087%" y="175.50"></text></g><g><title>_realloc (1 samples, 0.03%)</title><rect x="1.2587%" y="149" width="0.0350%" height="15" fill="rgb(235,183,28)" fg:x="36" fg:w="1"/><text x="1.5087%" y="159.50"></text></g><g><title>_malloc_zone_realloc (1 samples, 0.03%)</title><rect x="1.2587%" y="133" width="0.0350%" height="15" fill="rgb(221,5,38)" fg:x="36" fg:w="1"/><text x="1.5087%" y="143.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="1.2587%" y="117" width="0.0350%" height="15" fill="rgb(247,18,42)" fg:x="36" fg:w="1"/><text x="1.5087%" y="127.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="1.2587%" y="101" width="0.0350%" height="15" fill="rgb(241,131,45)" fg:x="36" fg:w="1"/><text x="1.5087%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::generate_moves (3 samples, 0.10%)</title><rect x="1.2238%" y="197" width="0.1049%" height="15" fill="rgb(249,31,29)" fg:x="35" fg:w="3"/><text x="1.4738%" y="207.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (1 samples, 0.03%)</title><rect x="1.2937%" y="181" width="0.0350%" height="15" fill="rgb(225,111,53)" fg:x="37" fg:w="1"/><text x="1.5437%" y="191.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (1 samples, 0.03%)</title><rect x="1.2937%" y="165" width="0.0350%" height="15" fill="rgb(238,160,17)" fg:x="37" fg:w="1"/><text x="1.5437%" y="175.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="1.5035%" y="165" width="0.0350%" height="15" fill="rgb(214,148,48)" fg:x="43" fg:w="1"/><text x="1.7535%" y="175.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="1.5385%" y="165" width="0.0350%" height="15" fill="rgb(232,36,49)" fg:x="44" fg:w="1"/><text x="1.7885%" y="175.50"></text></g><g><title>__rustc::__rdl_alloc (1 samples, 0.03%)</title><rect x="1.5734%" y="149" width="0.0350%" height="15" fill="rgb(209,103,24)" fg:x="45" fg:w="1"/><text x="1.8234%" y="159.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (1 samples, 0.03%)</title><rect x="1.6084%" y="149" width="0.0350%" height="15" fill="rgb(229,88,8)" fg:x="46" fg:w="1"/><text x="1.8584%" y="159.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (10 samples, 0.35%)</title><rect x="1.3287%" y="197" width="0.3497%" height="15" fill="rgb(213,181,19)" fg:x="38" fg:w="10"/><text x="1.5787%" y="207.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (5 samples, 0.17%)</title><rect x="1.5035%" y="181" width="0.1748%" height="15" fill="rgb(254,191,54)" fg:x="43" fg:w="5"/><text x="1.7535%" y="191.50"></text></g><g><title>alloc::raw_vec::finish_grow (3 samples, 0.10%)</title><rect x="1.5734%" y="165" width="0.1049%" height="15" fill="rgb(241,83,37)" fg:x="45" fg:w="3"/><text x="1.8234%" y="175.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="1.6434%" y="149" width="0.0350%" height="15" fill="rgb(233,36,39)" fg:x="47" fg:w="1"/><text x="1.8934%" y="159.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (34 samples, 1.19%)</title><rect x="0.6993%" y="213" width="1.1888%" height="15" fill="rgb(226,3,54)" fg:x="20" fg:w="34"/><text x="0.9493%" y="223.50"></text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (6 samples, 0.21%)</title><rect x="1.6783%" y="197" width="0.2098%" height="15" fill="rgb(245,192,40)" fg:x="48" fg:w="6"/><text x="1.9283%" y="207.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (1 samples, 0.03%)</title><rect x="1.8531%" y="181" width="0.0350%" height="15" fill="rgb(238,167,29)" fg:x="53" fg:w="1"/><text x="2.1031%" y="191.50"></text></g><g><title>alloc::raw_vec::finish_grow (1 samples, 0.03%)</title><rect x="1.8531%" y="165" width="0.0350%" height="15" fill="rgb(232,182,51)" fg:x="53" fg:w="1"/><text x="2.1031%" y="175.50"></text></g><g><title>_realloc (1 samples, 0.03%)</title><rect x="1.8531%" y="149" width="0.0350%" height="15" fill="rgb(231,60,39)" fg:x="53" fg:w="1"/><text x="2.1031%" y="159.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="1.8531%" y="133" width="0.0350%" height="15" fill="rgb(208,69,12)" fg:x="53" fg:w="1"/><text x="2.1031%" y="143.50"></text></g><g><title>_free (8 samples, 0.28%)</title><rect x="1.8881%" y="197" width="0.2797%" height="15" fill="rgb(235,93,37)" fg:x="54" fg:w="8"/><text x="2.1381%" y="207.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="2.1678%" y="197" width="0.0699%" height="15" fill="rgb(213,116,39)" fg:x="62" fg:w="2"/><text x="2.4178%" y="207.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (3 samples, 0.10%)</title><rect x="2.2378%" y="197" width="0.1049%" height="15" fill="rgb(222,207,29)" fg:x="64" fg:w="3"/><text x="2.4878%" y="207.50"></text></g><g><title>DYLD-STUB$$free (6 samples, 0.21%)</title><rect x="3.6713%" y="181" width="0.2098%" height="15" fill="rgb(206,96,30)" fg:x="105" fg:w="6"/><text x="3.9213%" y="191.50"></text></g><g><title>__rustc::__rust_dealloc (1 samples, 0.03%)</title><rect x="3.8811%" y="181" width="0.0350%" height="15" fill="rgb(218,138,4)" fg:x="111" fg:w="1"/><text x="4.1311%" y="191.50"></text></g><g><title>_free (2 samples, 0.07%)</title><rect x="3.9161%" y="181" width="0.0699%" height="15" fill="rgb(250,191,14)" fg:x="112" fg:w="2"/><text x="4.1661%" y="191.50"></text></g><g><title>_platform_memset (2 samples, 0.07%)</title><rect x="3.9860%" y="181" width="0.0699%" height="15" fill="rgb(239,60,40)" fg:x="114" fg:w="2"/><text x="4.2360%" y="191.50"></text></g><g><title>DYLD-STUB$$_platform_bzero (1 samples, 0.03%)</title><rect x="4.9301%" y="165" width="0.0350%" height="15" fill="rgb(206,27,48)" fg:x="141" fg:w="1"/><text x="5.1801%" y="175.50"></text></g><g><title>__bzero (2 samples, 0.07%)</title><rect x="4.9650%" y="165" width="0.0699%" height="15" fill="rgb(225,35,8)" fg:x="142" fg:w="2"/><text x="5.2150%" y="175.50"></text></g><g><title>_platform_memset (2 samples, 0.07%)</title><rect x="5.0350%" y="165" width="0.0699%" height="15" fill="rgb(250,213,24)" fg:x="144" fg:w="2"/><text x="5.2850%" y="175.50"></text></g><g><title>_xzm_free (31 samples, 1.08%)</title><rect x="4.0559%" y="181" width="1.0839%" height="15" fill="rgb(247,123,22)" fg:x="116" fg:w="31"/><text x="4.3059%" y="191.50"></text></g><g><title>mach_absolute_time (1 samples, 0.03%)</title><rect x="5.1049%" y="165" width="0.0350%" height="15" fill="rgb(231,138,38)" fg:x="146" fg:w="1"/><text x="5.3549%" y="175.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (5 samples, 0.17%)</title><rect x="5.1399%" y="181" width="0.1748%" height="15" fill="rgb(231,145,46)" fg:x="147" fg:w="5"/><text x="5.3899%" y="191.50"></text></g><g><title>alloc::raw_vec::finish_grow (2 samples, 0.07%)</title><rect x="5.2448%" y="165" width="0.0699%" height="15" fill="rgb(251,118,11)" fg:x="150" fg:w="2"/><text x="5.4948%" y="175.50"></text></g><g><title>_realloc (2 samples, 0.07%)</title><rect x="5.2448%" y="149" width="0.0699%" height="15" fill="rgb(217,147,25)" fg:x="150" fg:w="2"/><text x="5.4948%" y="159.50"></text></g><g><title>_malloc_zone_realloc (2 samples, 0.07%)</title><rect x="5.2448%" y="133" width="0.0699%" height="15" fill="rgb(247,81,37)" fg:x="150" fg:w="2"/><text x="5.4948%" y="143.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="5.2797%" y="117" width="0.0350%" height="15" fill="rgb(209,12,38)" fg:x="151" fg:w="1"/><text x="5.5297%" y="127.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="5.2797%" y="101" width="0.0350%" height="15" fill="rgb(227,1,9)" fg:x="151" fg:w="1"/><text x="5.5297%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (3 samples, 0.10%)</title><rect x="5.3147%" y="181" width="0.1049%" height="15" fill="rgb(248,47,43)" fg:x="152" fg:w="3"/><text x="5.5647%" y="191.50"></text></g><g><title>_platform_memmove (1 samples, 0.03%)</title><rect x="5.4196%" y="165" width="0.0350%" height="15" fill="rgb(221,10,30)" fg:x="155" fg:w="1"/><text x="5.6696%" y="175.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="5.4545%" y="165" width="0.0350%" height="15" fill="rgb(210,229,1)" fg:x="156" fg:w="1"/><text x="5.7045%" y="175.50"></text></g><g><title>DYLD-STUB$$_platform_memmove (1 samples, 0.03%)</title><rect x="5.5594%" y="101" width="0.0350%" height="15" fill="rgb(222,148,37)" fg:x="159" fg:w="1"/><text x="5.8094%" y="111.50"></text></g><g><title>_platform_memmove (2 samples, 0.07%)</title><rect x="5.5944%" y="85" width="0.0699%" height="15" fill="rgb(234,67,33)" fg:x="160" fg:w="2"/><text x="5.8444%" y="95.50"></text></g><g><title>alloc::raw_vec::RawVecInner&lt;A&gt;::reserve::do_reserve_and_handle (6 samples, 0.21%)</title><rect x="5.4895%" y="165" width="0.2098%" height="15" fill="rgb(247,98,35)" fg:x="157" fg:w="6"/><text x="5.7395%" y="175.50"></text></g><g><title>alloc::raw_vec::finish_grow (5 samples, 0.17%)</title><rect x="5.5245%" y="149" width="0.1748%" height="15" fill="rgb(247,138,52)" fg:x="158" fg:w="5"/><text x="5.7745%" y="159.50"></text></g><g><title>_realloc (5 samples, 0.17%)</title><rect x="5.5245%" y="133" width="0.1748%" height="15" fill="rgb(213,79,30)" fg:x="158" fg:w="5"/><text x="5.7745%" y="143.50"></text></g><g><title>_malloc_zone_realloc (5 samples, 0.17%)</title><rect x="5.5245%" y="117" width="0.1748%" height="15" fill="rgb(246,177,23)" fg:x="158" fg:w="5"/><text x="5.7745%" y="127.50"></text></g><g><title>xzm_realloc (3 samples, 0.10%)</title><rect x="5.5944%" y="101" width="0.1049%" height="15" fill="rgb(230,62,27)" fg:x="160" fg:w="3"/><text x="5.8444%" y="111.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="5.6643%" y="85" width="0.0350%" height="15" fill="rgb(216,154,8)" fg:x="162" fg:w="1"/><text x="5.9143%" y="95.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="5.7692%" y="133" width="0.0350%" height="15" fill="rgb(244,35,45)" fg:x="165" fg:w="1"/><text x="6.0192%" y="143.50"></text></g><g><title>rusty_chess::board::board::Board::generate_moves (12 samples, 0.42%)</title><rect x="5.4196%" y="181" width="0.4196%" height="15" fill="rgb(251,115,12)" fg:x="155" fg:w="12"/><text x="5.6696%" y="191.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (4 samples, 0.14%)</title><rect x="5.6993%" y="165" width="0.1399%" height="15" fill="rgb(240,54,50)" fg:x="163" fg:w="4"/><text x="5.9493%" y="175.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (3 samples, 0.10%)</title><rect x="5.7343%" y="149" width="0.1049%" height="15" fill="rgb(233,84,52)" fg:x="164" fg:w="3"/><text x="5.9843%" y="159.50"></text></g><g><title>alloc::raw_vec::finish_grow (1 samples, 0.03%)</title><rect x="5.8042%" y="133" width="0.0350%" height="15" fill="rgb(207,117,47)" fg:x="166" fg:w="1"/><text x="6.0542%" y="143.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="5.8042%" y="117" width="0.0350%" height="15" fill="rgb(249,43,39)" fg:x="166" fg:w="1"/><text x="6.0542%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (5 samples, 0.17%)</title><rect x="7.0979%" y="149" width="0.1748%" height="15" fill="rgb(209,38,44)" fg:x="203" fg:w="5"/><text x="7.3479%" y="159.50"></text></g><g><title>_malloc_zone_malloc (4 samples, 0.14%)</title><rect x="7.2727%" y="149" width="0.1399%" height="15" fill="rgb(236,212,23)" fg:x="208" fg:w="4"/><text x="7.5227%" y="159.50"></text></g><g><title>_xzm_xzone_malloc (8 samples, 0.28%)</title><rect x="7.4126%" y="149" width="0.2797%" height="15" fill="rgb(242,79,21)" fg:x="212" fg:w="8"/><text x="7.6626%" y="159.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="7.8322%" y="133" width="0.0350%" height="15" fill="rgb(211,96,35)" fg:x="224" fg:w="1"/><text x="8.0822%" y="143.50"></text></g><g><title>DYLD-STUB$$malloc (2 samples, 0.07%)</title><rect x="7.8671%" y="133" width="0.0699%" height="15" fill="rgb(253,215,40)" fg:x="225" fg:w="2"/><text x="8.1171%" y="143.50"></text></g><g><title>__rustc::__rdl_alloc (2 samples, 0.07%)</title><rect x="7.9371%" y="133" width="0.0699%" height="15" fill="rgb(211,81,21)" fg:x="227" fg:w="2"/><text x="8.1871%" y="143.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (1 samples, 0.03%)</title><rect x="8.0070%" y="133" width="0.0350%" height="15" fill="rgb(208,190,38)" fg:x="229" fg:w="1"/><text x="8.2570%" y="143.50"></text></g><g><title>_malloc_zone_malloc (6 samples, 0.21%)</title><rect x="8.0420%" y="133" width="0.2098%" height="15" fill="rgb(235,213,38)" fg:x="230" fg:w="6"/><text x="8.2920%" y="143.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="8.2517%" y="101" width="0.0350%" height="15" fill="rgb(237,122,38)" fg:x="236" fg:w="1"/><text x="8.5017%" y="111.50"></text></g><g><title>_realloc (2 samples, 0.07%)</title><rect x="8.2517%" y="133" width="0.0699%" height="15" fill="rgb(244,218,35)" fg:x="236" fg:w="2"/><text x="8.5017%" y="143.50"></text></g><g><title>_malloc_zone_realloc (2 samples, 0.07%)</title><rect x="8.2517%" y="117" width="0.0699%" height="15" fill="rgb(240,68,47)" fg:x="236" fg:w="2"/><text x="8.5017%" y="127.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="8.2867%" y="101" width="0.0350%" height="15" fill="rgb(210,16,53)" fg:x="237" fg:w="1"/><text x="8.5367%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (72 samples, 2.52%)</title><rect x="5.8392%" y="181" width="2.5175%" height="15" fill="rgb(235,124,12)" fg:x="167" fg:w="72"/><text x="6.0892%" y="191.50">ru..</text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (37 samples, 1.29%)</title><rect x="7.0629%" y="165" width="1.2937%" height="15" fill="rgb(224,169,11)" fg:x="202" fg:w="37"/><text x="7.3129%" y="175.50"></text></g><g><title>alloc::raw_vec::finish_grow (19 samples, 0.66%)</title><rect x="7.6923%" y="149" width="0.6643%" height="15" fill="rgb(250,166,2)" fg:x="220" fg:w="19"/><text x="7.9423%" y="159.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="8.3217%" y="133" width="0.0350%" height="15" fill="rgb(242,216,29)" fg:x="238" fg:w="1"/><text x="8.5717%" y="143.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="9.3357%" y="149" width="0.0350%" height="15" fill="rgb(230,116,27)" fg:x="267" fg:w="1"/><text x="9.5857%" y="159.50"></text></g><g><title>_xzm_xzone_malloc (2 samples, 0.07%)</title><rect x="9.3706%" y="149" width="0.0699%" height="15" fill="rgb(228,99,48)" fg:x="268" fg:w="2"/><text x="9.6206%" y="159.50"></text></g><g><title>__rustc::__rdl_realloc (1 samples, 0.03%)</title><rect x="9.4406%" y="133" width="0.0350%" height="15" fill="rgb(253,11,6)" fg:x="270" fg:w="1"/><text x="9.6906%" y="143.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="9.5105%" y="101" width="0.0350%" height="15" fill="rgb(247,143,39)" fg:x="272" fg:w="1"/><text x="9.7605%" y="111.50"></text></g><g><title>default_zone_realloc (1 samples, 0.03%)</title><rect x="9.5455%" y="101" width="0.0350%" height="15" fill="rgb(236,97,10)" fg:x="273" fg:w="1"/><text x="9.7955%" y="111.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (2 samples, 0.07%)</title><rect x="9.5804%" y="85" width="0.0699%" height="15" fill="rgb(233,208,19)" fg:x="274" fg:w="2"/><text x="9.8304%" y="95.50"></text></g><g><title>_realloc (6 samples, 0.21%)</title><rect x="9.4755%" y="133" width="0.2098%" height="15" fill="rgb(216,164,2)" fg:x="271" fg:w="6"/><text x="9.7255%" y="143.50"></text></g><g><title>_malloc_zone_realloc (6 samples, 0.21%)</title><rect x="9.4755%" y="117" width="0.2098%" height="15" fill="rgb(220,129,5)" fg:x="271" fg:w="6"/><text x="9.7255%" y="127.50"></text></g><g><title>xzm_realloc (3 samples, 0.10%)</title><rect x="9.5804%" y="101" width="0.1049%" height="15" fill="rgb(242,17,10)" fg:x="274" fg:w="3"/><text x="9.8304%" y="111.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="9.6503%" y="85" width="0.0350%" height="15" fill="rgb(242,107,0)" fg:x="276" fg:w="1"/><text x="9.9003%" y="95.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (211 samples, 7.38%)</title><rect x="2.3427%" y="197" width="7.3776%" height="15" fill="rgb(251,28,31)" fg:x="67" fg:w="211"/><text x="2.5927%" y="207.50">rusty_ches..</text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (39 samples, 1.36%)</title><rect x="8.3566%" y="181" width="1.3636%" height="15" fill="rgb(233,223,10)" fg:x="239" fg:w="39"/><text x="8.6066%" y="191.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (12 samples, 0.42%)</title><rect x="9.3007%" y="165" width="0.4196%" height="15" fill="rgb(215,21,27)" fg:x="266" fg:w="12"/><text x="9.5507%" y="175.50"></text></g><g><title>alloc::raw_vec::finish_grow (8 samples, 0.28%)</title><rect x="9.4406%" y="149" width="0.2797%" height="15" fill="rgb(232,23,21)" fg:x="270" fg:w="8"/><text x="9.6906%" y="159.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="9.6853%" y="133" width="0.0350%" height="15" fill="rgb(244,5,23)" fg:x="277" fg:w="1"/><text x="9.9353%" y="143.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (6 samples, 0.21%)</title><rect x="9.7203%" y="197" width="0.2098%" height="15" fill="rgb(226,81,46)" fg:x="278" fg:w="6"/><text x="9.9703%" y="207.50"></text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (6 samples, 0.21%)</title><rect x="9.9301%" y="197" width="0.2098%" height="15" fill="rgb(247,70,30)" fg:x="284" fg:w="6"/><text x="10.1801%" y="207.50"></text></g><g><title>_free (11 samples, 0.38%)</title><rect x="10.2098%" y="181" width="0.3846%" height="15" fill="rgb(212,68,19)" fg:x="292" fg:w="11"/><text x="10.4598%" y="191.50"></text></g><g><title>_xzm_free (11 samples, 0.38%)</title><rect x="10.5944%" y="181" width="0.3846%" height="15" fill="rgb(240,187,13)" fg:x="303" fg:w="11"/><text x="10.8444%" y="191.50"></text></g><g><title>_platform_memset (1 samples, 0.03%)</title><rect x="10.9441%" y="165" width="0.0350%" height="15" fill="rgb(223,113,26)" fg:x="313" fg:w="1"/><text x="11.1941%" y="175.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (7 samples, 0.24%)</title><rect x="10.9790%" y="181" width="0.2448%" height="15" fill="rgb(206,192,2)" fg:x="314" fg:w="7"/><text x="11.2290%" y="191.50"></text></g><g><title>DYLD-STUB$$free (18 samples, 0.63%)</title><rect x="15.0350%" y="165" width="0.6294%" height="15" fill="rgb(241,108,4)" fg:x="430" fg:w="18"/><text x="15.2850%" y="175.50"></text></g><g><title>__bzero (1 samples, 0.03%)</title><rect x="15.6643%" y="165" width="0.0350%" height="15" fill="rgb(247,173,49)" fg:x="448" fg:w="1"/><text x="15.9143%" y="175.50"></text></g><g><title>_free (18 samples, 0.63%)</title><rect x="15.6993%" y="165" width="0.6294%" height="15" fill="rgb(224,114,35)" fg:x="449" fg:w="18"/><text x="15.9493%" y="175.50"></text></g><g><title>_platform_memmove (1 samples, 0.03%)</title><rect x="16.3287%" y="165" width="0.0350%" height="15" fill="rgb(245,159,27)" fg:x="467" fg:w="1"/><text x="16.5787%" y="175.50"></text></g><g><title>DYLD-STUB$$_platform_bzero (4 samples, 0.14%)</title><rect x="18.2168%" y="149" width="0.1399%" height="15" fill="rgb(245,172,44)" fg:x="521" fg:w="4"/><text x="18.4668%" y="159.50"></text></g><g><title>__bzero (5 samples, 0.17%)</title><rect x="18.3566%" y="149" width="0.1748%" height="15" fill="rgb(236,23,11)" fg:x="525" fg:w="5"/><text x="18.6066%" y="159.50"></text></g><g><title>_platform_memset (2 samples, 0.07%)</title><rect x="18.5315%" y="149" width="0.0699%" height="15" fill="rgb(205,117,38)" fg:x="530" fg:w="2"/><text x="18.7815%" y="159.50"></text></g><g><title>_xzm_free (66 samples, 2.31%)</title><rect x="16.3636%" y="165" width="2.3077%" height="15" fill="rgb(237,72,25)" fg:x="468" fg:w="66"/><text x="16.6136%" y="175.50">_..</text></g><g><title>mach_absolute_time (2 samples, 0.07%)</title><rect x="18.6014%" y="149" width="0.0699%" height="15" fill="rgb(244,70,9)" fg:x="532" fg:w="2"/><text x="18.8514%" y="159.50"></text></g><g><title>_platform_memmove (1 samples, 0.03%)</title><rect x="18.9161%" y="101" width="0.0350%" height="15" fill="rgb(217,125,39)" fg:x="541" fg:w="1"/><text x="19.1661%" y="111.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="18.9510%" y="101" width="0.0350%" height="15" fill="rgb(235,36,10)" fg:x="542" fg:w="1"/><text x="19.2010%" y="111.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (10 samples, 0.35%)</title><rect x="18.6713%" y="165" width="0.3497%" height="15" fill="rgb(251,123,47)" fg:x="534" fg:w="10"/><text x="18.9213%" y="175.50"></text></g><g><title>alloc::raw_vec::finish_grow (4 samples, 0.14%)</title><rect x="18.8811%" y="149" width="0.1399%" height="15" fill="rgb(221,13,13)" fg:x="540" fg:w="4"/><text x="19.1311%" y="159.50"></text></g><g><title>_realloc (4 samples, 0.14%)</title><rect x="18.8811%" y="133" width="0.1399%" height="15" fill="rgb(238,131,9)" fg:x="540" fg:w="4"/><text x="19.1311%" y="143.50"></text></g><g><title>_malloc_zone_realloc (4 samples, 0.14%)</title><rect x="18.8811%" y="117" width="0.1399%" height="15" fill="rgb(211,50,8)" fg:x="540" fg:w="4"/><text x="19.1311%" y="127.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="18.9860%" y="101" width="0.0350%" height="15" fill="rgb(245,182,24)" fg:x="543" fg:w="1"/><text x="19.2360%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (13 samples, 0.45%)</title><rect x="19.0210%" y="165" width="0.4545%" height="15" fill="rgb(242,14,37)" fg:x="544" fg:w="13"/><text x="19.2710%" y="175.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="19.9301%" y="149" width="0.0699%" height="15" fill="rgb(246,228,12)" fg:x="570" fg:w="2"/><text x="20.1801%" y="159.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (1 samples, 0.03%)</title><rect x="20.0000%" y="149" width="0.0350%" height="15" fill="rgb(213,55,15)" fg:x="572" fg:w="1"/><text x="20.2500%" y="159.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="20.1399%" y="133" width="0.0350%" height="15" fill="rgb(209,9,3)" fg:x="576" fg:w="1"/><text x="20.3899%" y="143.50"></text></g><g><title>_platform_memmove (1 samples, 0.03%)</title><rect x="20.1748%" y="69" width="0.0350%" height="15" fill="rgb(230,59,30)" fg:x="577" fg:w="1"/><text x="20.4248%" y="79.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="20.2098%" y="69" width="0.0699%" height="15" fill="rgb(209,121,21)" fg:x="578" fg:w="2"/><text x="20.4598%" y="79.50"></text></g><g><title>_platform_memset (1 samples, 0.03%)</title><rect x="20.2448%" y="53" width="0.0350%" height="15" fill="rgb(220,109,13)" fg:x="579" fg:w="1"/><text x="20.4948%" y="63.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="20.2797%" y="69" width="0.0350%" height="15" fill="rgb(232,18,1)" fg:x="580" fg:w="1"/><text x="20.5297%" y="79.50"></text></g><g><title>_xzm_xzone_malloc_freelist_outlined (1 samples, 0.03%)</title><rect x="20.3147%" y="69" width="0.0350%" height="15" fill="rgb(215,41,42)" fg:x="581" fg:w="1"/><text x="20.5647%" y="79.50"></text></g><g><title>alloc::raw_vec::RawVecInner&lt;A&gt;::reserve::do_reserve_and_handle (11 samples, 0.38%)</title><rect x="20.0350%" y="149" width="0.3846%" height="15" fill="rgb(224,123,36)" fg:x="573" fg:w="11"/><text x="20.2850%" y="159.50"></text></g><g><title>alloc::raw_vec::finish_grow (7 samples, 0.24%)</title><rect x="20.1748%" y="133" width="0.2448%" height="15" fill="rgb(240,125,3)" fg:x="577" fg:w="7"/><text x="20.4248%" y="143.50"></text></g><g><title>_realloc (7 samples, 0.24%)</title><rect x="20.1748%" y="117" width="0.2448%" height="15" fill="rgb(205,98,50)" fg:x="577" fg:w="7"/><text x="20.4248%" y="127.50"></text></g><g><title>_malloc_zone_realloc (7 samples, 0.24%)</title><rect x="20.1748%" y="101" width="0.2448%" height="15" fill="rgb(205,185,37)" fg:x="577" fg:w="7"/><text x="20.4248%" y="111.50"></text></g><g><title>xzm_realloc (7 samples, 0.24%)</title><rect x="20.1748%" y="85" width="0.2448%" height="15" fill="rgb(238,207,15)" fg:x="577" fg:w="7"/><text x="20.4248%" y="95.50"></text></g><g><title>_xzm_xzone_malloc_tiny (2 samples, 0.07%)</title><rect x="20.3497%" y="69" width="0.0699%" height="15" fill="rgb(213,199,42)" fg:x="582" fg:w="2"/><text x="20.5997%" y="79.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="20.6643%" y="117" width="0.0350%" height="15" fill="rgb(235,201,11)" fg:x="591" fg:w="1"/><text x="20.9143%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="20.6993%" y="101" width="0.0350%" height="15" fill="rgb(207,46,11)" fg:x="592" fg:w="1"/><text x="20.9493%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (10 samples, 0.35%)</title><rect x="20.4196%" y="149" width="0.3497%" height="15" fill="rgb(241,35,35)" fg:x="584" fg:w="10"/><text x="20.6696%" y="159.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (3 samples, 0.10%)</title><rect x="20.6643%" y="133" width="0.1049%" height="15" fill="rgb(243,32,47)" fg:x="591" fg:w="3"/><text x="20.9143%" y="143.50"></text></g><g><title>alloc::raw_vec::finish_grow (2 samples, 0.07%)</title><rect x="20.6993%" y="117" width="0.0699%" height="15" fill="rgb(247,202,23)" fg:x="592" fg:w="2"/><text x="20.9493%" y="127.50"></text></g><g><title>_realloc (1 samples, 0.03%)</title><rect x="20.7343%" y="101" width="0.0350%" height="15" fill="rgb(219,102,11)" fg:x="593" fg:w="1"/><text x="20.9843%" y="111.50"></text></g><g><title>_malloc_zone_realloc (1 samples, 0.03%)</title><rect x="20.7343%" y="85" width="0.0350%" height="15" fill="rgb(243,110,44)" fg:x="593" fg:w="1"/><text x="20.9843%" y="95.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="20.7343%" y="69" width="0.0350%" height="15" fill="rgb(222,74,54)" fg:x="593" fg:w="1"/><text x="20.9843%" y="79.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="20.7343%" y="53" width="0.0350%" height="15" fill="rgb(216,99,12)" fg:x="593" fg:w="1"/><text x="20.9843%" y="63.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="20.9441%" y="117" width="0.0350%" height="15" fill="rgb(226,22,26)" fg:x="599" fg:w="1"/><text x="21.1941%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="20.9790%" y="101" width="0.0350%" height="15" fill="rgb(217,163,10)" fg:x="600" fg:w="1"/><text x="21.2290%" y="111.50"></text></g><g><title>__rustc::__rdl_realloc (1 samples, 0.03%)</title><rect x="21.0140%" y="101" width="0.0350%" height="15" fill="rgb(213,25,53)" fg:x="601" fg:w="1"/><text x="21.2640%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::generate_moves (46 samples, 1.61%)</title><rect x="19.4755%" y="165" width="1.6084%" height="15" fill="rgb(252,105,26)" fg:x="557" fg:w="46"/><text x="19.7255%" y="175.50"></text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (9 samples, 0.31%)</title><rect x="20.7692%" y="149" width="0.3147%" height="15" fill="rgb(220,39,43)" fg:x="594" fg:w="9"/><text x="21.0192%" y="159.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (5 samples, 0.17%)</title><rect x="20.9091%" y="133" width="0.1748%" height="15" fill="rgb(229,68,48)" fg:x="598" fg:w="5"/><text x="21.1591%" y="143.50"></text></g><g><title>alloc::raw_vec::finish_grow (3 samples, 0.10%)</title><rect x="20.9790%" y="117" width="0.1049%" height="15" fill="rgb(252,8,32)" fg:x="600" fg:w="3"/><text x="21.2290%" y="127.50"></text></g><g><title>_realloc (1 samples, 0.03%)</title><rect x="21.0490%" y="101" width="0.0350%" height="15" fill="rgb(223,20,43)" fg:x="602" fg:w="1"/><text x="21.2990%" y="111.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (7 samples, 0.24%)</title><rect x="25.2448%" y="133" width="0.2448%" height="15" fill="rgb(229,81,49)" fg:x="722" fg:w="7"/><text x="25.4948%" y="143.50"></text></g><g><title>_malloc_zone_malloc (7 samples, 0.24%)</title><rect x="25.4895%" y="133" width="0.2448%" height="15" fill="rgb(236,28,36)" fg:x="729" fg:w="7"/><text x="25.7395%" y="143.50"></text></g><g><title>_xzm_xzone_malloc (5 samples, 0.17%)</title><rect x="25.7343%" y="133" width="0.1748%" height="15" fill="rgb(249,185,26)" fg:x="736" fg:w="5"/><text x="25.9843%" y="143.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (12 samples, 0.42%)</title><rect x="26.0140%" y="117" width="0.4196%" height="15" fill="rgb(249,174,33)" fg:x="744" fg:w="12"/><text x="26.2640%" y="127.50"></text></g><g><title>DYLD-STUB$$malloc (3 samples, 0.10%)</title><rect x="26.4336%" y="117" width="0.1049%" height="15" fill="rgb(233,201,37)" fg:x="756" fg:w="3"/><text x="26.6836%" y="127.50"></text></g><g><title>__rustc::__rdl_alloc (8 samples, 0.28%)</title><rect x="26.5385%" y="117" width="0.2797%" height="15" fill="rgb(221,78,26)" fg:x="759" fg:w="8"/><text x="26.7885%" y="127.50"></text></g><g><title>__rustc::__rdl_realloc (1 samples, 0.03%)</title><rect x="26.8182%" y="117" width="0.0350%" height="15" fill="rgb(250,127,30)" fg:x="767" fg:w="1"/><text x="27.0682%" y="127.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (4 samples, 0.14%)</title><rect x="26.8531%" y="117" width="0.1399%" height="15" fill="rgb(230,49,44)" fg:x="768" fg:w="4"/><text x="27.1031%" y="127.50"></text></g><g><title>_malloc_zone_malloc (18 samples, 0.63%)</title><rect x="26.9930%" y="117" width="0.6294%" height="15" fill="rgb(229,67,23)" fg:x="772" fg:w="18"/><text x="27.2430%" y="127.50"></text></g><g><title>DYLD-STUB$$_platform_memmove (1 samples, 0.03%)</title><rect x="27.7273%" y="85" width="0.0350%" height="15" fill="rgb(249,83,47)" fg:x="793" fg:w="1"/><text x="27.9773%" y="95.50"></text></g><g><title>_platform_memmove (1 samples, 0.03%)</title><rect x="27.7622%" y="85" width="0.0350%" height="15" fill="rgb(215,43,3)" fg:x="794" fg:w="1"/><text x="28.0122%" y="95.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="27.8671%" y="69" width="0.0350%" height="15" fill="rgb(238,154,13)" fg:x="797" fg:w="1"/><text x="28.1171%" y="79.50"></text></g><g><title>_malloc_zone_realloc (9 samples, 0.31%)</title><rect x="27.6573%" y="101" width="0.3147%" height="15" fill="rgb(219,56,2)" fg:x="791" fg:w="9"/><text x="27.9073%" y="111.50"></text></g><g><title>xzm_realloc (5 samples, 0.17%)</title><rect x="27.7972%" y="85" width="0.1748%" height="15" fill="rgb(233,0,4)" fg:x="795" fg:w="5"/><text x="28.0472%" y="95.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="27.9021%" y="69" width="0.0699%" height="15" fill="rgb(235,30,7)" fg:x="798" fg:w="2"/><text x="28.1521%" y="79.50"></text></g><g><title>__bzero (1 samples, 0.03%)</title><rect x="27.9371%" y="53" width="0.0350%" height="15" fill="rgb(250,79,13)" fg:x="799" fg:w="1"/><text x="28.1871%" y="63.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="27.9720%" y="101" width="0.0350%" height="15" fill="rgb(211,146,34)" fg:x="800" fg:w="1"/><text x="28.2220%" y="111.50"></text></g><g><title>_realloc (12 samples, 0.42%)</title><rect x="27.6224%" y="117" width="0.4196%" height="15" fill="rgb(228,22,38)" fg:x="790" fg:w="12"/><text x="27.8724%" y="127.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="28.0070%" y="101" width="0.0350%" height="15" fill="rgb(235,168,5)" fg:x="801" fg:w="1"/><text x="28.2570%" y="111.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (111 samples, 3.88%)</title><rect x="24.7203%" y="149" width="3.8811%" height="15" fill="rgb(221,155,16)" fg:x="707" fg:w="111"/><text x="24.9703%" y="159.50">allo..</text></g><g><title>alloc::raw_vec::finish_grow (77 samples, 2.69%)</title><rect x="25.9091%" y="133" width="2.6923%" height="15" fill="rgb(215,215,53)" fg:x="741" fg:w="77"/><text x="26.1591%" y="143.50">al..</text></g><g><title>_xzm_xzone_malloc (16 samples, 0.56%)</title><rect x="28.0420%" y="117" width="0.5594%" height="15" fill="rgb(223,4,10)" fg:x="802" fg:w="16"/><text x="28.2920%" y="127.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (222 samples, 7.76%)</title><rect x="21.0839%" y="165" width="7.7622%" height="15" fill="rgb(234,103,6)" fg:x="603" fg:w="222"/><text x="21.3339%" y="175.50">rusty_chess..</text></g><g><title>alloc::raw_vec::finish_grow (7 samples, 0.24%)</title><rect x="28.6014%" y="149" width="0.2448%" height="15" fill="rgb(227,97,0)" fg:x="818" fg:w="7"/><text x="28.8514%" y="159.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="31.7133%" y="133" width="0.0350%" height="15" fill="rgb(234,150,53)" fg:x="907" fg:w="1"/><text x="31.9633%" y="143.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="31.7483%" y="133" width="0.0350%" height="15" fill="rgb(228,201,54)" fg:x="908" fg:w="1"/><text x="31.9983%" y="143.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (2 samples, 0.07%)</title><rect x="31.9231%" y="117" width="0.0699%" height="15" fill="rgb(222,22,37)" fg:x="913" fg:w="2"/><text x="32.1731%" y="127.50"></text></g><g><title>DYLD-STUB$$malloc (3 samples, 0.10%)</title><rect x="31.9930%" y="117" width="0.1049%" height="15" fill="rgb(237,53,32)" fg:x="915" fg:w="3"/><text x="32.2430%" y="127.50"></text></g><g><title>__rustc::__rdl_alloc (4 samples, 0.14%)</title><rect x="32.0979%" y="117" width="0.1399%" height="15" fill="rgb(233,25,53)" fg:x="918" fg:w="4"/><text x="32.3479%" y="127.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (1 samples, 0.03%)</title><rect x="32.2378%" y="117" width="0.0350%" height="15" fill="rgb(210,40,34)" fg:x="922" fg:w="1"/><text x="32.4878%" y="127.50"></text></g><g><title>_malloc_zone_malloc (3 samples, 0.10%)</title><rect x="32.2727%" y="117" width="0.1049%" height="15" fill="rgb(241,220,44)" fg:x="923" fg:w="3"/><text x="32.5227%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="32.5874%" y="69" width="0.0350%" height="15" fill="rgb(235,28,35)" fg:x="932" fg:w="1"/><text x="32.8374%" y="79.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="32.6224%" y="69" width="0.0350%" height="15" fill="rgb(210,56,17)" fg:x="933" fg:w="1"/><text x="32.8724%" y="79.50"></text></g><g><title>_malloc_zone_realloc (9 samples, 0.31%)</title><rect x="32.3776%" y="101" width="0.3147%" height="15" fill="rgb(224,130,29)" fg:x="926" fg:w="9"/><text x="32.6276%" y="111.50"></text></g><g><title>xzm_realloc (7 samples, 0.24%)</title><rect x="32.4476%" y="85" width="0.2448%" height="15" fill="rgb(235,212,8)" fg:x="928" fg:w="7"/><text x="32.6976%" y="95.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="32.6573%" y="69" width="0.0350%" height="15" fill="rgb(223,33,50)" fg:x="934" fg:w="1"/><text x="32.9073%" y="79.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="32.6923%" y="101" width="0.0350%" height="15" fill="rgb(219,149,13)" fg:x="935" fg:w="1"/><text x="32.9423%" y="111.50"></text></g><g><title>_realloc (11 samples, 0.38%)</title><rect x="32.3776%" y="117" width="0.3846%" height="15" fill="rgb(250,156,29)" fg:x="926" fg:w="11"/><text x="32.6276%" y="127.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="32.7273%" y="101" width="0.0350%" height="15" fill="rgb(216,193,19)" fg:x="936" fg:w="1"/><text x="32.9773%" y="111.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (39 samples, 1.36%)</title><rect x="31.5734%" y="149" width="1.3636%" height="15" fill="rgb(216,135,14)" fg:x="903" fg:w="39"/><text x="31.8234%" y="159.50"></text></g><g><title>alloc::raw_vec::finish_grow (33 samples, 1.15%)</title><rect x="31.7832%" y="133" width="1.1538%" height="15" fill="rgb(241,47,5)" fg:x="909" fg:w="33"/><text x="32.0332%" y="143.50"></text></g><g><title>_xzm_xzone_malloc (5 samples, 0.17%)</title><rect x="32.7622%" y="117" width="0.1748%" height="15" fill="rgb(233,42,35)" fg:x="937" fg:w="5"/><text x="33.0122%" y="127.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (622 samples, 21.75%)</title><rect x="11.2238%" y="181" width="21.7483%" height="15" fill="rgb(231,13,6)" fg:x="321" fg:w="622"/><text x="11.4738%" y="191.50">rusty_chess::board::board::Board::..</text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (118 samples, 4.13%)</title><rect x="28.8462%" y="165" width="4.1259%" height="15" fill="rgb(207,181,40)" fg:x="825" fg:w="118"/><text x="29.0962%" y="175.50">rust..</text></g><g><title>alloc::raw_vec::finish_grow (1 samples, 0.03%)</title><rect x="32.9371%" y="149" width="0.0350%" height="15" fill="rgb(254,173,49)" fg:x="942" fg:w="1"/><text x="33.1871%" y="159.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (18 samples, 0.63%)</title><rect x="32.9720%" y="181" width="0.6294%" height="15" fill="rgb(221,1,38)" fg:x="943" fg:w="18"/><text x="33.2220%" y="191.50"></text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (6 samples, 0.21%)</title><rect x="33.6014%" y="181" width="0.2098%" height="15" fill="rgb(206,124,46)" fg:x="961" fg:w="6"/><text x="33.8514%" y="191.50"></text></g><g><title>rusty_chess::eval::evaluator::Evaluator::evaluate (1 samples, 0.03%)</title><rect x="33.8112%" y="181" width="0.0350%" height="15" fill="rgb(249,21,11)" fg:x="967" fg:w="1"/><text x="34.0612%" y="191.50"></text></g><g><title>_xzm_free (33 samples, 1.15%)</title><rect x="33.8462%" y="165" width="1.1538%" height="15" fill="rgb(222,201,40)" fg:x="968" fg:w="33"/><text x="34.0962%" y="175.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (2 samples, 0.07%)</title><rect x="35.0000%" y="165" width="0.0699%" height="15" fill="rgb(235,61,29)" fg:x="1001" fg:w="2"/><text x="35.2500%" y="175.50"></text></g><g><title>DYLD-STUB$$free (37 samples, 1.29%)</title><rect x="46.1888%" y="149" width="1.2937%" height="15" fill="rgb(219,207,3)" fg:x="1321" fg:w="37"/><text x="46.4388%" y="159.50"></text></g><g><title>__rustc::__rdl_dealloc (1 samples, 0.03%)</title><rect x="47.4825%" y="149" width="0.0350%" height="15" fill="rgb(222,56,46)" fg:x="1358" fg:w="1"/><text x="47.7325%" y="159.50"></text></g><g><title>__rustc::__rust_dealloc (1 samples, 0.03%)</title><rect x="47.5175%" y="149" width="0.0350%" height="15" fill="rgb(239,76,54)" fg:x="1359" fg:w="1"/><text x="47.7675%" y="159.50"></text></g><g><title>_free (82 samples, 2.87%)</title><rect x="47.5524%" y="149" width="2.8671%" height="15" fill="rgb(231,124,27)" fg:x="1360" fg:w="82"/><text x="47.8024%" y="159.50">_f..</text></g><g><title>DYLD-STUB$$_platform_bzero (9 samples, 0.31%)</title><rect x="55.6643%" y="133" width="0.3147%" height="15" fill="rgb(249,195,6)" fg:x="1592" fg:w="9"/><text x="55.9143%" y="143.50"></text></g><g><title>__bzero (18 samples, 0.63%)</title><rect x="55.9790%" y="133" width="0.6294%" height="15" fill="rgb(237,174,47)" fg:x="1601" fg:w="18"/><text x="56.2290%" y="143.50"></text></g><g><title>_platform_memset (12 samples, 0.42%)</title><rect x="56.6084%" y="133" width="0.4196%" height="15" fill="rgb(206,201,31)" fg:x="1619" fg:w="12"/><text x="56.8584%" y="143.50"></text></g><g><title>_xzm_free (191 samples, 6.68%)</title><rect x="50.4196%" y="149" width="6.6783%" height="15" fill="rgb(231,57,52)" fg:x="1442" fg:w="191"/><text x="50.6696%" y="159.50">_xzm_free</text></g><g><title>mach_absolute_time (2 samples, 0.07%)</title><rect x="57.0280%" y="133" width="0.0699%" height="15" fill="rgb(248,177,22)" fg:x="1631" fg:w="2"/><text x="57.2780%" y="143.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (2 samples, 0.07%)</title><rect x="57.5524%" y="69" width="0.0699%" height="15" fill="rgb(215,211,37)" fg:x="1646" fg:w="2"/><text x="57.8024%" y="79.50"></text></g><g><title>_platform_memmove (3 samples, 0.10%)</title><rect x="57.6224%" y="69" width="0.1049%" height="15" fill="rgb(241,128,51)" fg:x="1648" fg:w="3"/><text x="57.8724%" y="79.50"></text></g><g><title>_xzm_free (3 samples, 0.10%)</title><rect x="57.7273%" y="69" width="0.1049%" height="15" fill="rgb(227,165,31)" fg:x="1651" fg:w="3"/><text x="57.9773%" y="79.50"></text></g><g><title>mach_absolute_time (3 samples, 0.10%)</title><rect x="57.7273%" y="53" width="0.1049%" height="15" fill="rgb(228,167,24)" fg:x="1651" fg:w="3"/><text x="57.9773%" y="63.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="57.8322%" y="69" width="0.0350%" height="15" fill="rgb(228,143,12)" fg:x="1654" fg:w="1"/><text x="58.0822%" y="79.50"></text></g><g><title>_malloc_zone_realloc (13 samples, 0.45%)</title><rect x="57.4476%" y="101" width="0.4545%" height="15" fill="rgb(249,149,8)" fg:x="1643" fg:w="13"/><text x="57.6976%" y="111.50"></text></g><g><title>xzm_realloc (11 samples, 0.38%)</title><rect x="57.5175%" y="85" width="0.3846%" height="15" fill="rgb(243,35,44)" fg:x="1645" fg:w="11"/><text x="57.7675%" y="95.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="57.8671%" y="69" width="0.0350%" height="15" fill="rgb(246,89,9)" fg:x="1655" fg:w="1"/><text x="58.1171%" y="79.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (24 samples, 0.84%)</title><rect x="57.0979%" y="149" width="0.8392%" height="15" fill="rgb(233,213,13)" fg:x="1633" fg:w="24"/><text x="57.3479%" y="159.50"></text></g><g><title>alloc::raw_vec::finish_grow (14 samples, 0.49%)</title><rect x="57.4476%" y="133" width="0.4895%" height="15" fill="rgb(233,141,41)" fg:x="1643" fg:w="14"/><text x="57.6976%" y="143.50"></text></g><g><title>_realloc (14 samples, 0.49%)</title><rect x="57.4476%" y="117" width="0.4895%" height="15" fill="rgb(239,167,4)" fg:x="1643" fg:w="14"/><text x="57.6976%" y="127.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="57.9021%" y="101" width="0.0350%" height="15" fill="rgb(209,217,16)" fg:x="1656" fg:w="1"/><text x="58.1521%" y="111.50"></text></g><g><title>alloc::raw_vec::RawVecInner&lt;A&gt;::reserve::do_reserve_and_handle (3 samples, 0.10%)</title><rect x="57.9371%" y="149" width="0.1049%" height="15" fill="rgb(219,88,35)" fg:x="1657" fg:w="3"/><text x="58.1871%" y="159.50"></text></g><g><title>rusty_chess::board::board::Board::apply_move (46 samples, 1.61%)</title><rect x="58.0420%" y="149" width="1.6084%" height="15" fill="rgb(220,193,23)" fg:x="1660" fg:w="46"/><text x="58.2920%" y="159.50"></text></g><g><title>DYLD-STUB$$free (1 samples, 0.03%)</title><rect x="60.2797%" y="133" width="0.0350%" height="15" fill="rgb(230,90,52)" fg:x="1724" fg:w="1"/><text x="60.5297%" y="143.50"></text></g><g><title>DYLD-STUB$$memcpy (3 samples, 0.10%)</title><rect x="60.3147%" y="133" width="0.1049%" height="15" fill="rgb(252,106,19)" fg:x="1725" fg:w="3"/><text x="60.5647%" y="143.50"></text></g><g><title>_free (4 samples, 0.14%)</title><rect x="60.4196%" y="133" width="0.1399%" height="15" fill="rgb(206,74,20)" fg:x="1728" fg:w="4"/><text x="60.6696%" y="143.50"></text></g><g><title>_platform_memmove (10 samples, 0.35%)</title><rect x="60.5594%" y="133" width="0.3497%" height="15" fill="rgb(230,138,44)" fg:x="1732" fg:w="10"/><text x="60.8094%" y="143.50"></text></g><g><title>DYLD-STUB$$_platform_bzero (2 samples, 0.07%)</title><rect x="61.1538%" y="117" width="0.0699%" height="15" fill="rgb(235,182,43)" fg:x="1749" fg:w="2"/><text x="61.4038%" y="127.50"></text></g><g><title>_xzm_free (10 samples, 0.35%)</title><rect x="60.9091%" y="133" width="0.3497%" height="15" fill="rgb(242,16,51)" fg:x="1742" fg:w="10"/><text x="61.1591%" y="143.50"></text></g><g><title>_platform_memset (1 samples, 0.03%)</title><rect x="61.2238%" y="117" width="0.0350%" height="15" fill="rgb(248,9,4)" fg:x="1751" fg:w="1"/><text x="61.4738%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (1 samples, 0.03%)</title><rect x="61.5385%" y="101" width="0.0350%" height="15" fill="rgb(210,31,22)" fg:x="1760" fg:w="1"/><text x="61.7885%" y="111.50"></text></g><g><title>__rustc::__rdl_alloc (1 samples, 0.03%)</title><rect x="61.5734%" y="101" width="0.0350%" height="15" fill="rgb(239,54,39)" fg:x="1761" fg:w="1"/><text x="61.8234%" y="111.50"></text></g><g><title>_malloc_zone_malloc (1 samples, 0.03%)</title><rect x="61.6084%" y="101" width="0.0350%" height="15" fill="rgb(230,99,41)" fg:x="1762" fg:w="1"/><text x="61.8584%" y="111.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="61.7133%" y="69" width="0.0350%" height="15" fill="rgb(253,106,12)" fg:x="1765" fg:w="1"/><text x="61.9633%" y="79.50"></text></g><g><title>__bzero (1 samples, 0.03%)</title><rect x="61.9231%" y="37" width="0.0350%" height="15" fill="rgb(213,46,41)" fg:x="1771" fg:w="1"/><text x="62.1731%" y="47.50"></text></g><g><title>_platform_memset (1 samples, 0.03%)</title><rect x="61.9580%" y="37" width="0.0350%" height="15" fill="rgb(215,133,35)" fg:x="1772" fg:w="1"/><text x="62.2080%" y="47.50"></text></g><g><title>_xzm_free (7 samples, 0.24%)</title><rect x="61.7832%" y="53" width="0.2448%" height="15" fill="rgb(213,28,5)" fg:x="1767" fg:w="7"/><text x="62.0332%" y="63.50"></text></g><g><title>mach_absolute_time (1 samples, 0.03%)</title><rect x="61.9930%" y="37" width="0.0350%" height="15" fill="rgb(215,77,49)" fg:x="1773" fg:w="1"/><text x="62.2430%" y="47.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="62.0280%" y="53" width="0.0350%" height="15" fill="rgb(248,100,22)" fg:x="1774" fg:w="1"/><text x="62.2780%" y="63.50"></text></g><g><title>_malloc_zone_realloc (11 samples, 0.38%)</title><rect x="61.7133%" y="85" width="0.3846%" height="15" fill="rgb(208,67,9)" fg:x="1765" fg:w="11"/><text x="61.9633%" y="95.50"></text></g><g><title>xzm_realloc (10 samples, 0.35%)</title><rect x="61.7483%" y="69" width="0.3497%" height="15" fill="rgb(219,133,21)" fg:x="1766" fg:w="10"/><text x="61.9983%" y="79.50"></text></g><g><title>_xzm_xzone_malloc_tiny (1 samples, 0.03%)</title><rect x="62.0629%" y="53" width="0.0350%" height="15" fill="rgb(246,46,29)" fg:x="1775" fg:w="1"/><text x="62.3129%" y="63.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="62.0979%" y="85" width="0.0350%" height="15" fill="rgb(246,185,52)" fg:x="1776" fg:w="1"/><text x="62.3479%" y="95.50"></text></g><g><title>alloc::raw_vec::RawVecInner&lt;A&gt;::reserve::do_reserve_and_handle (26 samples, 0.91%)</title><rect x="61.2587%" y="133" width="0.9091%" height="15" fill="rgb(252,136,11)" fg:x="1752" fg:w="26"/><text x="61.5087%" y="143.50"></text></g><g><title>alloc::raw_vec::finish_grow (20 samples, 0.70%)</title><rect x="61.4685%" y="117" width="0.6993%" height="15" fill="rgb(219,138,53)" fg:x="1758" fg:w="20"/><text x="61.7185%" y="127.50"></text></g><g><title>_realloc (15 samples, 0.52%)</title><rect x="61.6434%" y="101" width="0.5245%" height="15" fill="rgb(211,51,23)" fg:x="1763" fg:w="15"/><text x="61.8934%" y="111.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="62.1329%" y="85" width="0.0350%" height="15" fill="rgb(247,221,28)" fg:x="1777" fg:w="1"/><text x="62.3829%" y="95.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (2 samples, 0.07%)</title><rect x="63.2168%" y="85" width="0.0699%" height="15" fill="rgb(251,222,45)" fg:x="1808" fg:w="2"/><text x="63.4668%" y="95.50"></text></g><g><title>DYLD-STUB$$malloc (1 samples, 0.03%)</title><rect x="63.2867%" y="85" width="0.0350%" height="15" fill="rgb(217,162,53)" fg:x="1810" fg:w="1"/><text x="63.5367%" y="95.50"></text></g><g><title>_malloc_zone_malloc (5 samples, 0.17%)</title><rect x="63.3217%" y="85" width="0.1748%" height="15" fill="rgb(229,93,14)" fg:x="1811" fg:w="5"/><text x="63.5717%" y="95.50"></text></g><g><title>_realloc (3 samples, 0.10%)</title><rect x="63.4965%" y="85" width="0.1049%" height="15" fill="rgb(209,67,49)" fg:x="1816" fg:w="3"/><text x="63.7465%" y="95.50"></text></g><g><title>_malloc_zone_realloc (2 samples, 0.07%)</title><rect x="63.5315%" y="69" width="0.0699%" height="15" fill="rgb(213,87,29)" fg:x="1817" fg:w="2"/><text x="63.7815%" y="79.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (13 samples, 0.45%)</title><rect x="63.1818%" y="117" width="0.4545%" height="15" fill="rgb(205,151,52)" fg:x="1807" fg:w="13"/><text x="63.4318%" y="127.50"></text></g><g><title>alloc::raw_vec::finish_grow (12 samples, 0.42%)</title><rect x="63.2168%" y="101" width="0.4196%" height="15" fill="rgb(253,215,39)" fg:x="1808" fg:w="12"/><text x="63.4668%" y="111.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="63.6014%" y="85" width="0.0350%" height="15" fill="rgb(221,220,41)" fg:x="1819" fg:w="1"/><text x="63.8514%" y="95.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (44 samples, 1.54%)</title><rect x="62.1678%" y="133" width="1.5385%" height="15" fill="rgb(218,133,21)" fg:x="1778" fg:w="44"/><text x="62.4178%" y="143.50"></text></g><g><title>alloc::raw_vec::finish_grow (2 samples, 0.07%)</title><rect x="63.6364%" y="117" width="0.0699%" height="15" fill="rgb(221,193,43)" fg:x="1820" fg:w="2"/><text x="63.8864%" y="127.50"></text></g><g><title>__rustc::__rdl_alloc (1 samples, 0.03%)</title><rect x="63.9510%" y="85" width="0.0350%" height="15" fill="rgb(240,128,52)" fg:x="1829" fg:w="1"/><text x="64.2010%" y="95.50"></text></g><g><title>_malloc_zone_realloc (1 samples, 0.03%)</title><rect x="63.9860%" y="85" width="0.0350%" height="15" fill="rgb(253,114,12)" fg:x="1830" fg:w="1"/><text x="64.2360%" y="95.50"></text></g><g><title>_malloc_zone_realloc (3 samples, 0.10%)</title><rect x="64.0210%" y="69" width="0.1049%" height="15" fill="rgb(215,223,47)" fg:x="1831" fg:w="3"/><text x="64.2710%" y="79.50"></text></g><g><title>xzm_realloc (3 samples, 0.10%)</title><rect x="64.0210%" y="53" width="0.1049%" height="15" fill="rgb(248,225,23)" fg:x="1831" fg:w="3"/><text x="64.2710%" y="63.50"></text></g><g><title>_xzm_free (2 samples, 0.07%)</title><rect x="64.0559%" y="37" width="0.0699%" height="15" fill="rgb(250,108,0)" fg:x="1832" fg:w="2"/><text x="64.3059%" y="47.50"></text></g><g><title>_realloc (4 samples, 0.14%)</title><rect x="64.0210%" y="85" width="0.1399%" height="15" fill="rgb(228,208,7)" fg:x="1831" fg:w="4"/><text x="64.2710%" y="95.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="64.1259%" y="69" width="0.0350%" height="15" fill="rgb(244,45,10)" fg:x="1834" fg:w="1"/><text x="64.3759%" y="79.50"></text></g><g><title>rusty_chess::board::board::Board::generate_moves (130 samples, 4.55%)</title><rect x="59.6503%" y="149" width="4.5455%" height="15" fill="rgb(207,125,25)" fg:x="1706" fg:w="130"/><text x="59.9003%" y="159.50">rusty..</text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (14 samples, 0.49%)</title><rect x="63.7063%" y="133" width="0.4895%" height="15" fill="rgb(210,195,18)" fg:x="1822" fg:w="14"/><text x="63.9563%" y="143.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (10 samples, 0.35%)</title><rect x="63.8462%" y="117" width="0.3497%" height="15" fill="rgb(249,80,12)" fg:x="1826" fg:w="10"/><text x="64.0962%" y="127.50"></text></g><g><title>alloc::raw_vec::finish_grow (7 samples, 0.24%)</title><rect x="63.9510%" y="101" width="0.2448%" height="15" fill="rgb(221,65,9)" fg:x="1829" fg:w="7"/><text x="64.2010%" y="111.50"></text></g><g><title>_xzm_xzone_malloc (1 samples, 0.03%)</title><rect x="64.1608%" y="85" width="0.0350%" height="15" fill="rgb(235,49,36)" fg:x="1835" fg:w="1"/><text x="64.4108%" y="95.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (43 samples, 1.50%)</title><rect x="76.2238%" y="101" width="1.5035%" height="15" fill="rgb(225,32,20)" fg:x="2180" fg:w="43"/><text x="76.4738%" y="111.50"></text></g><g><title>DYLD-STUB$$malloc (7 samples, 0.24%)</title><rect x="77.7273%" y="101" width="0.2448%" height="15" fill="rgb(215,141,46)" fg:x="2223" fg:w="7"/><text x="77.9773%" y="111.50"></text></g><g><title>DYLD-STUB$$realloc (1 samples, 0.03%)</title><rect x="77.9720%" y="101" width="0.0350%" height="15" fill="rgb(250,160,47)" fg:x="2230" fg:w="1"/><text x="78.2220%" y="111.50"></text></g><g><title>__rustc::__rdl_alloc (25 samples, 0.87%)</title><rect x="78.0070%" y="101" width="0.8741%" height="15" fill="rgb(216,222,40)" fg:x="2231" fg:w="25"/><text x="78.2570%" y="111.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (5 samples, 0.17%)</title><rect x="78.8811%" y="101" width="0.1748%" height="15" fill="rgb(234,217,39)" fg:x="2256" fg:w="5"/><text x="79.1311%" y="111.50"></text></g><g><title>_malloc_zone_malloc (50 samples, 1.75%)</title><rect x="79.0559%" y="101" width="1.7483%" height="15" fill="rgb(207,178,40)" fg:x="2261" fg:w="50"/><text x="79.3059%" y="111.50"></text></g><g><title>_malloc_zone_realloc (1 samples, 0.03%)</title><rect x="80.8042%" y="101" width="0.0350%" height="15" fill="rgb(221,136,13)" fg:x="2311" fg:w="1"/><text x="81.0542%" y="111.50"></text></g><g><title>default_zone_realloc (1 samples, 0.03%)</title><rect x="80.9790%" y="69" width="0.0350%" height="15" fill="rgb(249,199,10)" fg:x="2316" fg:w="1"/><text x="81.2290%" y="79.50"></text></g><g><title>_platform_memmove (2 samples, 0.07%)</title><rect x="81.3287%" y="53" width="0.0699%" height="15" fill="rgb(249,222,13)" fg:x="2326" fg:w="2"/><text x="81.5787%" y="63.50"></text></g><g><title>_xzm_free (5 samples, 0.17%)</title><rect x="81.3986%" y="53" width="0.1748%" height="15" fill="rgb(244,185,38)" fg:x="2328" fg:w="5"/><text x="81.6486%" y="63.50"></text></g><g><title>_malloc_zone_realloc (21 samples, 0.73%)</title><rect x="80.9091%" y="85" width="0.7343%" height="15" fill="rgb(236,202,9)" fg:x="2314" fg:w="21"/><text x="81.1591%" y="95.50"></text></g><g><title>xzm_realloc (18 samples, 0.63%)</title><rect x="81.0140%" y="69" width="0.6294%" height="15" fill="rgb(250,229,37)" fg:x="2317" fg:w="18"/><text x="81.2640%" y="79.50"></text></g><g><title>_xzm_xzone_malloc (2 samples, 0.07%)</title><rect x="81.5734%" y="53" width="0.0699%" height="15" fill="rgb(206,174,23)" fg:x="2333" fg:w="2"/><text x="81.8234%" y="63.50"></text></g><g><title>xzm_malloc_zone_size (1 samples, 0.03%)</title><rect x="81.6434%" y="85" width="0.0350%" height="15" fill="rgb(211,33,43)" fg:x="2335" fg:w="1"/><text x="81.8934%" y="95.50"></text></g><g><title>_realloc (25 samples, 0.87%)</title><rect x="80.8392%" y="101" width="0.8741%" height="15" fill="rgb(245,58,50)" fg:x="2312" fg:w="25"/><text x="81.0892%" y="111.50"></text></g><g><title>xzm_realloc (1 samples, 0.03%)</title><rect x="81.6783%" y="85" width="0.0350%" height="15" fill="rgb(244,68,36)" fg:x="2336" fg:w="1"/><text x="81.9283%" y="95.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (272 samples, 9.51%)</title><rect x="74.1608%" y="133" width="9.5105%" height="15" fill="rgb(232,229,15)" fg:x="2121" fg:w="272"/><text x="74.4108%" y="143.50">alloc::raw_vec..</text></g><g><title>alloc::raw_vec::finish_grow (233 samples, 8.15%)</title><rect x="75.5245%" y="117" width="8.1469%" height="15" fill="rgb(254,30,23)" fg:x="2160" fg:w="233"/><text x="75.7745%" y="127.50">alloc::raw_..</text></g><g><title>_xzm_xzone_malloc (56 samples, 1.96%)</title><rect x="81.7133%" y="101" width="1.9580%" height="15" fill="rgb(235,160,14)" fg:x="2337" fg:w="56"/><text x="81.9633%" y="111.50">_..</text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (576 samples, 20.14%)</title><rect x="64.1958%" y="149" width="20.1399%" height="15" fill="rgb(212,155,44)" fg:x="1836" fg:w="576"/><text x="64.4458%" y="159.50">rusty_chess::board::board::Board..</text></g><g><title>alloc::raw_vec::finish_grow (19 samples, 0.66%)</title><rect x="83.6713%" y="133" width="0.6643%" height="15" fill="rgb(226,2,50)" fg:x="2393" fg:w="19"/><text x="83.9213%" y="143.50"></text></g><g><title>_realloc (1 samples, 0.03%)</title><rect x="91.2937%" y="117" width="0.0350%" height="15" fill="rgb(234,177,6)" fg:x="2611" fg:w="1"/><text x="91.5437%" y="127.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (14 samples, 0.49%)</title><rect x="91.5035%" y="101" width="0.4895%" height="15" fill="rgb(217,24,9)" fg:x="2617" fg:w="14"/><text x="91.7535%" y="111.50"></text></g><g><title>DYLD-STUB$$malloc (2 samples, 0.07%)</title><rect x="91.9930%" y="101" width="0.0699%" height="15" fill="rgb(220,13,46)" fg:x="2631" fg:w="2"/><text x="92.2430%" y="111.50"></text></g><g><title>__rustc::__rdl_alloc (7 samples, 0.24%)</title><rect x="92.0629%" y="101" width="0.2448%" height="15" fill="rgb(239,221,27)" fg:x="2633" fg:w="7"/><text x="92.3129%" y="111.50"></text></g><g><title>__rustc::__rdl_realloc (4 samples, 0.14%)</title><rect x="92.3077%" y="101" width="0.1399%" height="15" fill="rgb(222,198,25)" fg:x="2640" fg:w="4"/><text x="92.5577%" y="111.50"></text></g><g><title>__rustc::__rust_no_alloc_shim_is_unstable_v2 (2 samples, 0.07%)</title><rect x="92.4476%" y="101" width="0.0699%" height="15" fill="rgb(211,99,13)" fg:x="2644" fg:w="2"/><text x="92.6976%" y="111.50"></text></g><g><title>__rustc::__rust_realloc (1 samples, 0.03%)</title><rect x="92.5175%" y="101" width="0.0350%" height="15" fill="rgb(232,111,31)" fg:x="2646" fg:w="1"/><text x="92.7675%" y="111.50"></text></g><g><title>_malloc_zone_malloc (14 samples, 0.49%)</title><rect x="92.5524%" y="101" width="0.4895%" height="15" fill="rgb(245,82,37)" fg:x="2647" fg:w="14"/><text x="92.8024%" y="111.50"></text></g><g><title>_xzm_free (1 samples, 0.03%)</title><rect x="93.2168%" y="69" width="0.0350%" height="15" fill="rgb(227,149,46)" fg:x="2666" fg:w="1"/><text x="93.4668%" y="79.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (5 samples, 0.17%)</title><rect x="94.0210%" y="53" width="0.1748%" height="15" fill="rgb(218,36,50)" fg:x="2689" fg:w="5"/><text x="94.2710%" y="63.50"></text></g><g><title>_platform_memmove (5 samples, 0.17%)</title><rect x="94.1958%" y="53" width="0.1748%" height="15" fill="rgb(226,80,48)" fg:x="2694" fg:w="5"/><text x="94.4458%" y="63.50"></text></g><g><title>_xzm_free (14 samples, 0.49%)</title><rect x="94.3706%" y="53" width="0.4895%" height="15" fill="rgb(238,224,15)" fg:x="2699" fg:w="14"/><text x="94.6206%" y="63.50"></text></g><g><title>_platform_memset (3 samples, 0.10%)</title><rect x="94.7552%" y="37" width="0.1049%" height="15" fill="rgb(241,136,10)" fg:x="2710" fg:w="3"/><text x="95.0052%" y="47.50"></text></g><g><title>_xzm_xzone_malloc (4 samples, 0.14%)</title><rect x="94.8601%" y="53" width="0.1399%" height="15" fill="rgb(208,32,45)" fg:x="2713" fg:w="4"/><text x="95.1101%" y="63.50"></text></g><g><title>_malloc_zone_realloc (55 samples, 1.92%)</title><rect x="93.1469%" y="85" width="1.9231%" height="15" fill="rgb(207,135,9)" fg:x="2664" fg:w="55"/><text x="93.3969%" y="95.50">_..</text></g><g><title>xzm_realloc (52 samples, 1.82%)</title><rect x="93.2517%" y="69" width="1.8182%" height="15" fill="rgb(206,86,44)" fg:x="2667" fg:w="52"/><text x="93.5017%" y="79.50">x..</text></g><g><title>_xzm_xzone_malloc_tiny (2 samples, 0.07%)</title><rect x="95.0000%" y="53" width="0.0699%" height="15" fill="rgb(245,177,15)" fg:x="2717" fg:w="2"/><text x="95.2500%" y="63.50"></text></g><g><title>xzm_malloc_zone_size (5 samples, 0.17%)</title><rect x="95.0699%" y="85" width="0.1748%" height="15" fill="rgb(206,64,50)" fg:x="2719" fg:w="5"/><text x="95.3199%" y="95.50"></text></g><g><title>_realloc (65 samples, 2.27%)</title><rect x="93.0420%" y="101" width="2.2727%" height="15" fill="rgb(234,36,40)" fg:x="2661" fg:w="65"/><text x="93.2920%" y="111.50">_..</text></g><g><title>xzm_realloc (2 samples, 0.07%)</title><rect x="95.2448%" y="85" width="0.0699%" height="15" fill="rgb(213,64,8)" fg:x="2724" fg:w="2"/><text x="95.4948%" y="95.50"></text></g><g><title>alloc::raw_vec::RawVec&lt;T,A&gt;::grow_one (155 samples, 5.42%)</title><rect x="90.8392%" y="133" width="5.4196%" height="15" fill="rgb(210,75,36)" fg:x="2598" fg:w="155"/><text x="91.0892%" y="143.50">alloc::..</text></g><g><title>alloc::raw_vec::finish_grow (141 samples, 4.93%)</title><rect x="91.3287%" y="117" width="4.9301%" height="15" fill="rgb(229,88,21)" fg:x="2612" fg:w="141"/><text x="91.5787%" y="127.50">alloc:..</text></g><g><title>_xzm_xzone_malloc (27 samples, 0.94%)</title><rect x="95.3147%" y="101" width="0.9441%" height="15" fill="rgb(252,204,47)" fg:x="2726" fg:w="27"/><text x="95.5647%" y="111.50"></text></g><g><title>rusty_chess::board::board::Board::generate_legal_moves (1,755 samples, 61.36%)</title><rect x="35.0699%" y="165" width="61.3636%" height="15" fill="rgb(208,77,27)" fg:x="1003" fg:w="1755"/><text x="35.3199%" y="175.50">rusty_chess::board::board::Board::generate_legal_moves</text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (346 samples, 12.10%)</title><rect x="84.3357%" y="149" width="12.0979%" height="15" fill="rgb(221,76,26)" fg:x="2412" fg:w="346"/><text x="84.5857%" y="159.50">rusty_chess::board..</text></g><g><title>alloc::raw_vec::finish_grow (5 samples, 0.17%)</title><rect x="96.2587%" y="133" width="0.1748%" height="15" fill="rgb(225,139,18)" fg:x="2753" fg:w="5"/><text x="96.5087%" y="143.50"></text></g><g><title>rusty_chess::board::board::Board::generate_piece_moves (41 samples, 1.43%)</title><rect x="96.4336%" y="165" width="1.4336%" height="15" fill="rgb(230,137,11)" fg:x="2758" fg:w="41"/><text x="96.6836%" y="175.50"></text></g><g><title>rusty_chess::board::board::Board::generate_sliding_moves (14 samples, 0.49%)</title><rect x="97.8671%" y="165" width="0.4895%" height="15" fill="rgb(212,28,1)" fg:x="2799" fg:w="14"/><text x="98.1171%" y="175.50"></text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (1,870 samples, 65.38%)</title><rect x="33.8462%" y="181" width="65.3846%" height="15" fill="rgb(248,164,17)" fg:x="968" fg:w="1870"/><text x="34.0962%" y="191.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>rusty_chess::eval::evaluator::Evaluator::evaluate (25 samples, 0.87%)</title><rect x="98.3566%" y="165" width="0.8741%" height="15" fill="rgb(222,171,42)" fg:x="2813" fg:w="25"/><text x="98.6066%" y="175.50"></text></g><g><title>core::slice::sort::stable::quicksort::quicksort (2 samples, 0.07%)</title><rect x="99.2308%" y="133" width="0.0699%" height="15" fill="rgb(243,84,45)" fg:x="2838" fg:w="2"/><text x="99.4808%" y="143.50"></text></g><g><title>&lt;deduplicated_symbol&gt; (2 samples, 0.07%)</title><rect x="99.2308%" y="117" width="0.0699%" height="15" fill="rgb(252,49,23)" fg:x="2838" fg:w="2"/><text x="99.4808%" y="127.50"></text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (2,551 samples, 89.20%)</title><rect x="10.1399%" y="197" width="89.1958%" height="15" fill="rgb(215,19,7)" fg:x="290" fg:w="2551"/><text x="10.3899%" y="207.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>rusty_chess::search::minimax::Minimax::order_moves (3 samples, 0.10%)</title><rect x="99.2308%" y="181" width="0.1049%" height="15" fill="rgb(238,81,41)" fg:x="2838" fg:w="3"/><text x="99.4808%" y="191.50"></text></g><g><title>core::slice::sort::stable::driftsort_main (3 samples, 0.10%)</title><rect x="99.2308%" y="165" width="0.1049%" height="15" fill="rgb(210,199,37)" fg:x="2838" fg:w="3"/><text x="99.4808%" y="175.50"></text></g><g><title>core::slice::sort::stable::drift::sort (3 samples, 0.10%)</title><rect x="99.2308%" y="149" width="0.1049%" height="15" fill="rgb(244,192,49)" fg:x="2838" fg:w="3"/><text x="99.4808%" y="159.50"></text></g><g><title>rusty_chess::search::minimax::Minimax::move_priority (1 samples, 0.03%)</title><rect x="99.3007%" y="133" width="0.0350%" height="15" fill="rgb(226,211,11)" fg:x="2840" fg:w="1"/><text x="99.5507%" y="143.50"></text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (2,833 samples, 99.06%)</title><rect x="0.3147%" y="245" width="99.0559%" height="15" fill="rgb(236,162,54)" fg:x="9" fg:w="2833"/><text x="0.5647%" y="255.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (2,825 samples, 98.78%)</title><rect x="0.5944%" y="229" width="98.7762%" height="15" fill="rgb(220,229,9)" fg:x="17" fg:w="2825"/><text x="0.8444%" y="239.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (2,788 samples, 97.48%)</title><rect x="1.8881%" y="213" width="97.4825%" height="15" fill="rgb(250,87,22)" fg:x="54" fg:w="2788"/><text x="2.1381%" y="223.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>rusty_chess::search::minimax::Minimax::order_moves (1 samples, 0.03%)</title><rect x="99.3357%" y="197" width="0.0350%" height="15" fill="rgb(239,43,17)" fg:x="2841" fg:w="1"/><text x="99.5857%" y="207.50"></text></g><g><title>core::slice::sort::stable::driftsort_main (1 samples, 0.03%)</title><rect x="99.3357%" y="181" width="0.0350%" height="15" fill="rgb(231,177,25)" fg:x="2841" fg:w="1"/><text x="99.5857%" y="191.50"></text></g><g><title>core::slice::sort::stable::drift::sort (1 samples, 0.03%)</title><rect x="99.3357%" y="165" width="0.0350%" height="15" fill="rgb(219,179,1)" fg:x="2841" fg:w="1"/><text x="99.5857%" y="175.50"></text></g><g><title>rusty_chess::search::minimax::Minimax::find_best_move (2,835 samples, 99.13%)</title><rect x="0.2797%" y="277" width="99.1259%" height="15" fill="rgb(238,219,53)" fg:x="8" fg:w="2835"/><text x="0.5297%" y="287.50">rusty_chess::search::minimax::Minimax::find_best_move</text></g><g><title>rusty_chess::search::minimax::Minimax::alpha_beta (2,835 samples, 99.13%)</title><rect x="0.2797%" y="261" width="99.1259%" height="15" fill="rgb(232,167,36)" fg:x="8" fg:w="2835"/><text x="0.5297%" y="271.50">rusty_chess::search::minimax::Minimax::alpha_beta</text></g><g><title>xzm_malloc_zone_try_free_default (1 samples, 0.03%)</title><rect x="99.3706%" y="245" width="0.0350%" height="15" fill="rgb(244,19,51)" fg:x="2842" fg:w="1"/><text x="99.6206%" y="255.50"></text></g><g><title>rusty_chess::search::engine::ChessEngine::find_best_move (2,847 samples, 99.55%)</title><rect x="0.0699%" y="293" width="99.5455%" height="15" fill="rgb(224,6,22)" fg:x="2" fg:w="2847"/><text x="0.3199%" y="303.50">rusty_chess::search::engine::ChessEngine::find_best_move</text></g><g><title>rusty_chess::search::transposition_table::TranspositionTable::memory_usage (6 samples, 0.21%)</title><rect x="99.4056%" y="277" width="0.2098%" height="15" fill="rgb(224,145,5)" fg:x="2843" fg:w="6"/><text x="99.6556%" y="287.50"></text></g><g><title>all (2,860 samples, 100%)</title><rect x="0.0000%" y="405" width="100.0000%" height="15" fill="rgb(234,130,49)" fg:x="0" fg:w="2860"/><text x="0.2500%" y="415.50"></text></g><g><title>start (2,860 samples, 100.00%)</title><rect x="0.0000%" y="389" width="100.0000%" height="15" fill="rgb(254,6,2)" fg:x="0" fg:w="2860"/><text x="0.2500%" y="399.50">start</text></g><g><title>main (2,858 samples, 99.93%)</title><rect x="0.0699%" y="373" width="99.9301%" height="15" fill="rgb(208,96,46)" fg:x="2" fg:w="2858"/><text x="0.3199%" y="383.50">main</text></g><g><title>std::rt::lang_start_internal (2,858 samples, 99.93%)</title><rect x="0.0699%" y="357" width="99.9301%" height="15" fill="rgb(239,3,39)" fg:x="2" fg:w="2858"/><text x="0.3199%" y="367.50">std::rt::lang_start_internal</text></g><g><title>std::rt::lang_start::_{{closure}} (2,858 samples, 99.93%)</title><rect x="0.0699%" y="341" width="99.9301%" height="15" fill="rgb(233,210,1)" fg:x="2" fg:w="2858"/><text x="0.3199%" y="351.50">std::rt::lang_start::_{{closure}}</text></g><g><title>std::sys::backtrace::__rust_begin_short_backtrace (2,858 samples, 99.93%)</title><rect x="0.0699%" y="325" width="99.9301%" height="15" fill="rgb(244,137,37)" fg:x="2" fg:w="2858"/><text x="0.3199%" y="335.50">std::sys::backtrace::__rust_begin_short_backtrace</text></g><g><title>profile::main (2,858 samples, 99.93%)</title><rect x="0.0699%" y="309" width="99.9301%" height="15" fill="rgb(240,136,2)" fg:x="2" fg:w="2858"/><text x="0.3199%" y="319.50">profile::main</text></g><g><title>rusty_chess::search::engine::ChessEngine::new (11 samples, 0.38%)</title><rect x="99.6154%" y="293" width="0.3846%" height="15" fill="rgb(239,18,37)" fg:x="2849" fg:w="11"/><text x="99.8654%" y="303.50"></text></g></svg></svg>
