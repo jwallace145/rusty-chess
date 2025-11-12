@@ -1,4 +1,7 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color},
+    eval::{material::MaterialEvaluator, position::PositionEvaluator},
+};
 
 /// Evaluates chess board positions to guide the minimax search algorithm.
 ///
@@ -14,10 +17,10 @@ pub struct Evaluator;
 
 impl Evaluator {
     pub fn evaluate(board: &Board) -> i32 {
-        let material = Self::material_count(board);
-        let positional = Self::positional_score(board);
+        let material: i32 = MaterialEvaluator::evaluate(board);
+        let position: i32 = PositionEvaluator::evaluate(board);
 
-        let total = material + positional;
+        let total: i32 = material + position;
 
         // Return score from side to move's perspective
         match board.side_to_move {
@@ -25,111 +28,12 @@ impl Evaluator {
             Color::Black => -total,
         }
     }
-
-    fn material_count(board: &Board) -> i32 {
-        let mut white_material = 0;
-        let mut black_material = 0;
-
-        for square in &board.squares {
-            if let Some((piece, color)) = square.0 {
-                let value = match piece {
-                    Piece::Pawn => 100,
-                    Piece::Knight => 320,
-                    Piece::Bishop => 330,
-                    Piece::Rook => 500,
-                    Piece::Queen => 900,
-                    Piece::King => 0,
-                };
-
-                match color {
-                    Color::White => white_material += value,
-                    Color::Black => black_material += value,
-                }
-            }
-        }
-
-        white_material - black_material
-    }
-
-    fn positional_score(board: &Board) -> i32 {
-        let mut white_position = 0;
-        let mut black_position = 0;
-
-        for (square, sq) in board.squares.iter().enumerate() {
-            if let Some((piece, color)) = sq.0 {
-                let bonus = Self::piece_square_value(piece, square, color);
-
-                match color {
-                    Color::White => white_position += bonus,
-                    Color::Black => black_position += bonus,
-                }
-            }
-        }
-
-        white_position - black_position
-    }
-
-    fn piece_square_value(piece: Piece, square: usize, color: Color) -> i32 {
-        // For black pieces, flip the board vertically
-        let sq = match color {
-            Color::White => square,
-            Color::Black => square ^ 56, // Flip rank: XOR with 56
-        };
-
-        match piece {
-            Piece::Pawn => PAWN_TABLE[sq],
-            Piece::Knight => KNIGHT_TABLE[sq],
-            Piece::Bishop => BISHOP_TABLE[sq],
-            Piece::Rook => ROOK_TABLE[sq],
-            Piece::Queen => QUEEN_TABLE[sq],
-            Piece::King => KING_MIDDLEGAME_TABLE[sq],
-        }
-    }
 }
-
-// Piece-Square Tables (from white's perspective)
-// Values are in centipawns (1/100 of a pawn)
-
-const PAWN_TABLE: [i32; 64] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5, 5,
-    10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10, 0, 0, -10, -5, 5, 5, 10, 10, -20,
-    -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-const KNIGHT_TABLE: [i32; 64] = [
-    -50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15, 10,
-    0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15, 15, 10,
-    5, -30, -40, -20, 0, 5, 5, 0, -20, -40, -50, -40, -30, -30, -30, -30, -40, -50,
-];
-
-const BISHOP_TABLE: [i32; 64] = [
-    -20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 10, 10, 5, 0,
-    -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0, -10, -10, 10, 10, 10, 10, 10, 10,
-    -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10, -10, -10, -10, -10, -10, -20,
-];
-
-const ROOK_TABLE: [i32; 64] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0,
-    0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, 0, 0,
-    0, 5, 5, 0, 0, 0,
-];
-
-const QUEEN_TABLE: [i32; 64] = [
-    -20, -10, -10, -5, -5, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 5, 5, 5, 0, -10,
-    -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0, 5, 0, 0,
-    0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20,
-];
-
-const KING_MIDDLEGAME_TABLE: [i32; 64] = [
-    -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40,
-    -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40, -40, -30,
-    -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0,
-    10, 30, 20,
-];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::Piece;
 
     #[test]
     fn test_starting_position_equal() {
