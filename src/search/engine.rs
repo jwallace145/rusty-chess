@@ -1,6 +1,6 @@
 use super::transposition_table::TranspositionTable;
 use crate::board::{Board, ChessMove};
-use crate::search::{Minimax, SearchMetrics};
+use crate::search::{Minimax, SearchHistory, SearchMetrics};
 
 /// Chess move search engine using minimax with alpha-beta pruning.
 ///
@@ -24,8 +24,11 @@ impl ChessEngine {
     }
 
     pub fn find_best_move(&mut self, board: &Board, depth: u8) -> Option<ChessMove> {
+        let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
-        let result = Minimax::find_best_move(board, depth, &mut self.tt, &mut metrics);
+
+        let result =
+            Minimax::find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
 
         self.print_search_stats(&metrics);
 

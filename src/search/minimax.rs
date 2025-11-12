@@ -1,6 +1,7 @@
 use super::transposition_table::TranspositionTable;
 use crate::board::{Board, ChessMove, Piece};
 use crate::eval::Evaluator;
+use crate::search::SearchHistory;
 use std::time::Instant;
 
 /// Statistics gathered during a minimax search operation.
@@ -41,14 +42,19 @@ impl Minimax {
     pub fn find_best_move(
         board: &Board,
         depth: u8,
+        history: &mut SearchHistory,
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
     ) -> Option<ChessMove> {
         let start_time = Instant::now();
 
+        // Initialize history with the current position
+        history.push(board.zobrist_hash);
+
         let legal_moves = board.generate_legal_moves();
 
         if legal_moves.is_empty() {
+            history.pop(); // Clean up before returning
             metrics.search_time = start_time.elapsed();
             return None;
         }
@@ -63,15 +69,22 @@ impl Minimax {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
+            // Push position before recursing
+            history.push(board_copy.zobrist_hash);
+
             let score = -Self::alpha_beta(
                 &board_copy,
                 depth - 1,
                 i32::MIN + 1,
                 i32::MAX,
+                history,
                 tt,
                 metrics,
                 depth,
             );
+
+            // Pop position after returning
+            history.pop();
 
             if score > best_score {
                 best_score = score;
@@ -79,15 +92,18 @@ impl Minimax {
             }
         }
 
+        history.pop(); // Clean up the initial position
         metrics.search_time = start_time.elapsed();
         Some(best_move)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn alpha_beta(
         board: &Board,
         depth: u8,
         mut alpha: i32,
         beta: i32,
+        history: &mut SearchHistory,
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
         original_depth: u8,
@@ -97,6 +113,11 @@ impl Minimax {
         let current_depth = original_depth - depth;
         if current_depth > metrics.max_depth_reached {
             metrics.max_depth_reached = current_depth;
+        }
+
+        // Check for repetition FIRST - this prevents infinite check loops
+        if history.is_repetition(board.zobrist_hash) {
+            return 0; // Repetition is a draw
         }
 
         // Probe transposition table - use board.zobrist_hash directly!
@@ -135,15 +156,22 @@ impl Minimax {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
+            // Push position before recursing
+            history.push(board_copy.zobrist_hash);
+
             let score = -Self::alpha_beta(
                 &board_copy,
                 depth - 1,
                 -beta,
                 -alpha,
+                history,
                 tt,
                 metrics,
                 original_depth,
             );
+
+            // Pop position after returning
+            history.pop();
 
             // Beta cutoff - opponent won't allow this position
             if score >= beta {
@@ -236,7 +264,8 @@ mod tests {
         // Create a TT and metrics for the test
         let mut tt = TranspositionTable::new();
         let mut metrics = SearchMetrics::new();
-        let best_move = Minimax::find_best_move(&board, 3, &mut tt, &mut metrics);
+        let mut history = SearchHistory::new();
+        let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();
@@ -269,7 +298,8 @@ mod tests {
 
         let mut tt = TranspositionTable::new();
         let mut metrics = SearchMetrics::new();
-        let best_move = Minimax::find_best_move(&board, 3, &mut tt, &mut metrics);
+        let mut history = SearchHistory::new();
+        let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();
