@@ -221,13 +221,25 @@ impl Minimax {
 
     fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
         if chess_move.capture {
-            // Prioritize capturing high-value pieces (negative for descending order)
             let victim_value = if let Some((piece, _)) = board.squares[chess_move.to].0 {
                 Self::piece_value(piece)
             } else {
                 100 // En passant captures a pawn
             };
-            -victim_value
+
+            // NEW: Get attacker value
+            let attacker_value = if let Some((piece, _)) = board.squares[chess_move.from].0 {
+                Self::piece_value(piece)
+            } else {
+                0 // Shouldn't happen
+            };
+
+            // MVV-LVA: High victim value, low attacker value = best
+            // victim_value * 10 - attacker_value ensures victim is primary factor
+            // Example: Pawn (100) takes Queen (900) = 9000 - 100 = 8900
+            // Example: Queen (900) takes Queen (900) = 9000 - 900 = 8100
+            // Negative for descending sort order
+            -(victim_value * 10 - attacker_value)
         } else {
             0 // Non-captures have neutral priority
         }
