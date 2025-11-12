@@ -1,65 +1,85 @@
 use super::transposition_table::TranspositionTable;
-use super::zobrist;
 use crate::board::{Board, ChessMove, Piece};
 use crate::eval::Evaluator;
+use std::time::Instant;
 
+/// Statistics gathered during a minimax search operation.
+#[derive(Debug, Default)]
+pub struct SearchMetrics {
+    /// Total number of nodes explored during search
+    pub nodes_explored: u64,
+    /// Maximum depth reached during search
+    pub max_depth_reached: u8,
+    /// Number of times alpha-beta pruning occurred
+    pub beta_cutoffs: u64,
+    /// Time taken for the search
+    pub search_time: std::time::Duration,
+}
+
+impl SearchMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// Chess AI using minimax algorithm with alpha-beta pruning.
+///
+/// This struct implements the minimax search algorithm to find the best chess move
+/// by exploring the game tree to a specified depth. The search alternates between
+/// maximizing and minimizing players, evaluating positions using a board evaluation function.
+///
+/// # Optimizations
+/// - **Alpha-beta pruning**: Eliminates branches that cannot affect the final decision
+/// - **Transposition table**: Caches previously evaluated positions to avoid redundant work
+///
+/// # References
+/// - [Wikipedia: Minimax](https://en.wikipedia.org/wiki/Minimax)
 pub struct Minimax;
 
 impl Minimax {
-    pub fn find_best_move(board: &Board, depth: u8) -> Option<ChessMove> {
-        // Create transposition table for this search
-        let mut tt = TranspositionTable::new();
-        let result = Self::find_best_move_with_tt(board, depth, &mut tt);
-
-        // Print transposition table statistics
-        let (hits, misses) = tt.stats();
-        if hits + misses > 0 {
-            let hit_rate = (hits as f64 / (hits + misses) as f64) * 100.0;
-            println!(
-                "TT Stats - Hit rate: {:.1}% ({} hits, {} misses)",
-                hit_rate, hits, misses
-            );
-        }
-
-        result
-    }
-
-    fn find_best_move_with_tt(
+    /// Find the best move using minimax with alpha-beta pruning
+    pub fn find_best_move(
         board: &Board,
         depth: u8,
         tt: &mut TranspositionTable,
+        metrics: &mut SearchMetrics,
     ) -> Option<ChessMove> {
+        let start_time = Instant::now();
+
         let legal_moves = board.generate_legal_moves();
 
         if legal_moves.is_empty() {
+            metrics.search_time = start_time.elapsed();
             return None;
         }
 
         // Order moves for better alpha-beta performance
-        let ordered_moves = Self::order_moves(board, legal_moves);
+        let ordered_moves = Self::order_moves(board, legal_moves, tt);
 
         let mut best_move = ordered_moves[0];
-        let mut best_score = -200_000;
-        let mut alpha = -200_000;
-        let beta = 200_000;
+        let mut best_score = i32::MIN;
 
         for chess_move in ordered_moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha, tt);
+            let score = -Self::alpha_beta(
+                &board_copy,
+                depth - 1,
+                i32::MIN + 1,
+                i32::MAX,
+                tt,
+                metrics,
+                depth,
+            );
 
             if score > best_score {
                 best_score = score;
                 best_move = chess_move;
             }
-
-            // Update alpha for the root search
-            if score > alpha {
-                alpha = score;
-            }
         }
 
+        metrics.search_time = start_time.elapsed();
         Some(best_move)
     }
 
@@ -69,49 +89,66 @@ impl Minimax {
         mut alpha: i32,
         beta: i32,
         tt: &mut TranspositionTable,
+        metrics: &mut SearchMetrics,
+        original_depth: u8,
     ) -> i32 {
-        // Probe transposition table first
-        let hash = zobrist::compute_hash(board);
-        if let Some(entry) = tt.probe(hash, depth) {
+        // Track nodes explored and max depth
+        metrics.nodes_explored += 1;
+        let current_depth = original_depth - depth;
+        if current_depth > metrics.max_depth_reached {
+            metrics.max_depth_reached = current_depth;
+        }
+
+        // Probe transposition table - use board.zobrist_hash directly!
+        if let Some(entry) = tt.probe(board.zobrist_hash, depth) {
             return entry.score;
         }
 
         let legal_moves = board.generate_legal_moves();
 
-        // Check for terminal positions first (checkmate or stalemate)
+        // Check for terminal positions (checkmate or stalemate)
         if legal_moves.is_empty() {
             let score = if board.is_checkmate() {
-                // Losing position - return very negative score
-                // Adjust score by depth to prefer faster checkmates
+                // Losing position - adjust score by depth to prefer faster checkmates
                 -100_000 - (depth as i32)
             } else {
                 // Stalemate - return draw score
                 0
             };
             // Store terminal position in TT
-            tt.store(hash, depth, score, None);
+            tt.store(board.zobrist_hash, depth, score, None);
             return score;
         }
 
+        // Leaf node - evaluate position
         if depth == 0 {
             let score = Evaluator::evaluate(board);
-            tt.store(hash, depth, score, None);
+            tt.store(board.zobrist_hash, depth, score, None);
             return score;
         }
 
         // Order moves for better pruning efficiency
-        let ordered_moves = Self::order_moves(board, legal_moves);
+        let ordered_moves = Self::order_moves(board, legal_moves, tt);
         let mut best_move = None;
 
         for chess_move in ordered_moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
-            let score = -Self::alpha_beta(&board_copy, depth - 1, -beta, -alpha, tt);
+            let score = -Self::alpha_beta(
+                &board_copy,
+                depth - 1,
+                -beta,
+                -alpha,
+                tt,
+                metrics,
+                original_depth,
+            );
 
-            // Beta cutoff - this position is too good, opponent won't allow it
+            // Beta cutoff - opponent won't allow this position
             if score >= beta {
-                tt.store(hash, depth, beta, Some(chess_move));
+                metrics.beta_cutoffs += 1;
+                tt.store(board.zobrist_hash, depth, beta, Some(chess_move));
                 return beta;
             }
 
@@ -123,28 +160,49 @@ impl Minimax {
         }
 
         // Store the result in transposition table
-        tt.store(hash, depth, alpha, best_move);
+        tt.store(board.zobrist_hash, depth, alpha, best_move);
 
         alpha
     }
 
-    /// Order moves to search promising moves first (improves alpha-beta pruning).
-    /// Priority: captures (high-value victims first), then non-captures.
-    fn order_moves(board: &Board, mut moves: Vec<ChessMove>) -> Vec<ChessMove> {
-        moves.sort_by_key(|m| {
-            if m.capture {
-                // Prioritize capturing high-value pieces
-                let victim_value = if let Some((piece, _)) = board.squares[m.to].0 {
-                    Self::piece_value(piece)
-                } else {
-                    100 // En passant captures a pawn
-                };
-                -victim_value // Negative for descending order
-            } else {
-                0 // Non-captures have neutral priority
+    /// Order moves to search promising moves first (improves alpha-beta pruning)
+    /// Priority: TT best move first, then captures by victim value, then non-captures
+    fn order_moves(
+        board: &Board,
+        mut moves: Vec<ChessMove>,
+        tt: &mut TranspositionTable,
+    ) -> Vec<ChessMove> {
+        // Try to get best move from transposition table
+        if let Some(entry) = tt.probe(board.zobrist_hash, 0)
+            && let Some(tt_best_move) = entry.best_move
+        {
+            // Find the TT best move in our list
+            if let Some(pos) = moves.iter().position(|&m| m == tt_best_move) {
+                // Move it to the front
+                moves.swap(0, pos);
+                // Sort the rest by capture value
+                moves[1..].sort_by_key(|m| Self::move_priority(board, m));
+                return moves;
             }
-        });
+        }
+
+        // No TT move found, sort all moves by priority
+        moves.sort_by_key(|m| Self::move_priority(board, m));
         moves
+    }
+
+    fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
+        if chess_move.capture {
+            // Prioritize capturing high-value pieces (negative for descending order)
+            let victim_value = if let Some((piece, _)) = board.squares[chess_move.to].0 {
+                Self::piece_value(piece)
+            } else {
+                100 // En passant captures a pawn
+            };
+            -victim_value
+        } else {
+            0 // Non-captures have neutral priority
+        }
     }
 
     fn piece_value(piece: Piece) -> i32 {
@@ -175,7 +233,10 @@ mod tests {
         board.black_king_pos = pos("a8");
         board.side_to_move = Color::White;
 
-        let best_move = Minimax::find_best_move(&board, 3);
+        // Create a TT and metrics for the test
+        let mut tt = TranspositionTable::new();
+        let mut metrics = SearchMetrics::new();
+        let best_move = Minimax::find_best_move(&board, 3, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();
@@ -206,7 +267,9 @@ mod tests {
             move_type: ChessMoveType::Normal,
         });
 
-        let best_move = Minimax::find_best_move(&board, 3);
+        let mut tt = TranspositionTable::new();
+        let mut metrics = SearchMetrics::new();
+        let best_move = Minimax::find_best_move(&board, 3, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();

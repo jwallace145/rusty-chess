@@ -1,5 +1,15 @@
 use crate::board::{Board, Color, Piece};
 
+/// Evaluates chess board positions to guide the minimax search algorithm.
+///
+/// Converts board states into numerical scores by combining two components:
+///
+/// - **Material**: Assigns values to pieces (e.g., Queen=900, Rook=500, Pawn=100)
+///   to encourage maintaining strong pieces
+/// - **Positional**: Rewards pieces for occupying favorable squares using
+///   piece-square tables (e.g., knights in the center, pawns advancing)
+///
+/// Returns positive scores when White is winning, negative when Black is winning.
 pub struct Evaluator;
 
 impl Evaluator {

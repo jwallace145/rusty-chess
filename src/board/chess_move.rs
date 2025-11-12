@@ -28,4 +28,6 @@ pub struct ChessMoveState {
     pub black_king_moved: bool,
     pub black_kingside_rook_moved: bool,
     pub black_queenside_rook_moved: bool,
+    pub previous_en_passant: Option<usize>,
+    pub previous_zobrist_hash: u64,
 }

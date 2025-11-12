@@ -1,5 +1,6 @@
 use super::chess_move::{ChessMove, ChessMoveState, ChessMoveType};
 use super::{Color, Piece};
+use crate::search::{CastlingRight, ZobristTable, compute_hash};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Square(pub Option<(Piece, Color)>);
@@ -17,6 +18,7 @@ pub struct Board {
     black_kingside_rook_moved: bool,
     black_queenside_rook_moved: bool,
     pub en_passant_target: Option<usize>,
+    pub zobrist_hash: u64,
 }
 
 impl Default for Board {
@@ -28,7 +30,7 @@ impl Default for Board {
 impl Board {
     #[cfg(test)]
     pub fn empty() -> Self {
-        Self {
+        let mut board = Self {
             squares: [Square(None); 64],
             side_to_move: Color::White,
             white_king_pos: 0,
@@ -40,28 +42,37 @@ impl Board {
             black_kingside_rook_moved: false,
             black_queenside_rook_moved: false,
             en_passant_target: None,
-        }
+            zobrist_hash: 0,
+        };
+
+        // Compute and set initial Zobrist hash of board state
+        board.zobrist_hash = compute_hash(&board);
+
+        board
     }
 
     pub fn new() -> Self {
         use Color::*;
         use Piece::*;
 
+        // Initialize board with 64 squares
         let mut squares = [Square(None); 64];
 
+        // Populate White side
         let white_back_rank = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
         for i in 0..8 {
             squares[i] = Square(Some((white_back_rank[i], White)));
             squares[i + 8] = Square(Some((Pawn, White)));
         }
 
+        // Populate Black side
         let black_back_rank = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
         for i in 0..8 {
             squares[i + 56] = Square(Some((black_back_rank[i], Black)));
             squares[i + 48] = Square(Some((Pawn, Black)));
         }
 
-        Self {
+        let mut board = Self {
             squares,
             side_to_move: White,
             white_king_pos: 4,  // e1
@@ -73,7 +84,13 @@ impl Board {
             black_kingside_rook_moved: false,
             black_queenside_rook_moved: false,
             en_passant_target: None,
-        }
+            zobrist_hash: 0,
+        };
+
+        // Compute and set initial Zobrist hash of board state
+        board.zobrist_hash = compute_hash(&board);
+
+        board
     }
 
     pub fn switch_side(&mut self) {
@@ -115,6 +132,9 @@ impl Board {
     }
 
     pub fn apply_move(&mut self, chess_move: ChessMove) -> ChessMoveState {
+        let zobrist = ZobristTable::get();
+
+        // Get moved and optional captured piece from move
         let moved_piece = self.squares[chess_move.from].0;
         let captured_piece = self.squares[chess_move.to].0;
 
@@ -130,35 +150,64 @@ impl Board {
             black_king_moved: self.black_king_moved,
             black_kingside_rook_moved: self.black_kingside_rook_moved,
             black_queenside_rook_moved: self.black_queenside_rook_moved,
+            previous_en_passant: self.en_passant_target,
+            previous_zobrist_hash: self.zobrist_hash,
         };
+
+        // Update hash and remove old en passant
+        if let Some(ep_square) = self.en_passant_target {
+            self.zobrist_hash ^= zobrist.en_passant(ep_square % 8);
+        }
+
+        // Update hash and remove moved piece from source square
+        if let Some((piece, color)) = moved_piece {
+            self.zobrist_hash ^= zobrist.piece(piece, color, chess_move.from);
+        }
+
+        // Update hash and remove optional captured piece
+        if let Some((piece, color)) = captured_piece {
+            self.zobrist_hash ^= zobrist.piece(piece, color, chess_move.to);
+        }
 
         // Move the piece
         self.squares[chess_move.to].0 = moved_piece;
         self.squares[chess_move.from].0 = None;
 
-        // Handle castling: move the rook as well
+        // Handle castling - move rook and update hash accordingly
         if chess_move.move_type == ChessMoveType::Castle
             && let Some((Piece::King, color)) = moved_piece
         {
             match color {
                 Color::White => {
                     if chess_move.to == 6 {
-                        // Kingside castling: move rook from h1 (7) to f1 (5)
+                        // Kingside: h1 to f1
+                        let rook = self.squares[7].0.unwrap();
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 7);
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 5);
                         self.squares[5].0 = self.squares[7].0;
                         self.squares[7].0 = None;
                     } else if chess_move.to == 2 {
-                        // Queenside castling: move rook from a1 (0) to d1 (3)
+                        // Queenside: a1 to d1
+                        let rook = self.squares[0].0.unwrap();
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 0);
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 3);
                         self.squares[3].0 = self.squares[0].0;
                         self.squares[0].0 = None;
                     }
                 }
                 Color::Black => {
                     if chess_move.to == 62 {
-                        // Kingside castling: move rook from h8 (63) to f8 (61)
+                        // Kingside: h8 to f8
+                        let rook = self.squares[63].0.unwrap();
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 63);
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 61);
                         self.squares[61].0 = self.squares[63].0;
                         self.squares[63].0 = None;
                     } else if chess_move.to == 58 {
-                        // Queenside castling: move rook from a8 (56) to d8 (59)
+                        // Queenside: a8 to d8
+                        let rook = self.squares[56].0.unwrap();
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 56);
+                        self.zobrist_hash ^= zobrist.piece(rook.0, rook.1, 59);
                         self.squares[59].0 = self.squares[56].0;
                         self.squares[56].0 = None;
                     }
@@ -166,7 +215,15 @@ impl Board {
             }
         }
 
-        // Update king position and king/rook moved flags for castling
+        // Update the castling rights after handling
+        let old_wk = self.white_king_moved;
+        let old_wkr = self.white_kingside_rook_moved;
+        let old_wqr = self.white_queenside_rook_moved;
+        let old_bk = self.black_king_moved;
+        let old_bkr = self.black_kingside_rook_moved;
+        let old_bqr = self.black_queenside_rook_moved;
+
+        // Update king position and castling flags
         if let Some((piece, color)) = moved_piece {
             match piece {
                 Piece::King => match color {
@@ -199,17 +256,54 @@ impl Board {
             }
         }
 
-        // Promote pawns to queens for simplicity
+        // XOR castling rights that changed
+        // Check if the ability to castle changed (not just individual flags)
+        let old_can_castle_wk = !old_wk && !old_wkr;
+        let new_can_castle_wk = !self.white_king_moved && !self.white_kingside_rook_moved;
+        if old_can_castle_wk != new_can_castle_wk {
+            self.zobrist_hash ^= zobrist.castling(CastlingRight::WhiteKingside);
+        }
+
+        let old_can_castle_wq = !old_wk && !old_wqr;
+        let new_can_castle_wq = !self.white_king_moved && !self.white_queenside_rook_moved;
+        if old_can_castle_wq != new_can_castle_wq {
+            self.zobrist_hash ^= zobrist.castling(CastlingRight::WhiteQueenside);
+        }
+
+        let old_can_castle_bk = !old_bk && !old_bkr;
+        let new_can_castle_bk = !self.black_king_moved && !self.black_kingside_rook_moved;
+        if old_can_castle_bk != new_can_castle_bk {
+            self.zobrist_hash ^= zobrist.castling(CastlingRight::BlackKingside);
+        }
+
+        let old_can_castle_bq = !old_bk && !old_bqr;
+        let new_can_castle_bq = !self.black_king_moved && !self.black_queenside_rook_moved;
+        if old_can_castle_bq != new_can_castle_bq {
+            self.zobrist_hash ^= zobrist.castling(CastlingRight::BlackQueenside);
+        }
+
+        // Handle pawn promotion
         if let Some((Piece::Pawn, color)) = self.squares[chess_move.to].0 {
             let rank = chess_move.to / 8;
             if (color == Color::White && rank == 7) || (color == Color::Black && rank == 0) {
+                // Remove pawn from hash
+                self.zobrist_hash ^= zobrist.piece(Piece::Pawn, color, chess_move.to);
+                // Add queen to hash
+                self.zobrist_hash ^= zobrist.piece(Piece::Queen, color, chess_move.to);
+                // Update board
                 self.squares[chess_move.to].0 = Some((Piece::Queen, color));
+            }
+        } else {
+            // Update hash and add piece to destination square
+            if let Some((piece, color)) = moved_piece {
+                self.zobrist_hash ^= zobrist.piece(piece, color, chess_move.to);
             }
         }
 
         // Reset en passant target
         self.en_passant_target = None;
 
+        // Handle en passant
         if let Some((Piece::Pawn, color)) = moved_piece {
             let rank_from = chess_move.from / 8;
             let rank_to = chess_move.to / 8;
@@ -218,25 +312,38 @@ impl Board {
             if (color == Color::White && rank_from == 1 && rank_to == 3)
                 || (color == Color::Black && rank_from == 6 && rank_to == 4)
             {
-                self.en_passant_target = if chess_move.to > chess_move.from {
-                    Some(chess_move.from + (chess_move.to - chess_move.from) / 2)
+                let ep_square = if chess_move.to > chess_move.from {
+                    chess_move.from + (chess_move.to - chess_move.from) / 2
                 } else {
-                    Some(chess_move.to + (chess_move.from - chess_move.to) / 2)
+                    chess_move.to + (chess_move.from - chess_move.to) / 2
                 };
+                self.en_passant_target = Some(ep_square);
+                // Add new en passant to hash
+                self.zobrist_hash ^= zobrist.en_passant(ep_square % 8);
             }
 
-            // Capture en passant
-            if Some(chess_move.to) == self.en_passant_target && chess_move.capture {
+            // Handle en passant capture
+            if chess_move.move_type == ChessMoveType::EnPassant {
                 let captured_pawn_square = if color == Color::White {
                     chess_move.to - 8
                 } else {
                     chess_move.to + 8
                 };
-                // Remove captured pawn
+
+                // Remove captured pawn from hash
+                if let Some((piece, pawn_color)) = self.squares[captured_pawn_square].0 {
+                    self.zobrist_hash ^= zobrist.piece(piece, pawn_color, captured_pawn_square);
+                }
+
+                // Remove captured pawn from board
                 self.squares[captured_pawn_square].0 = None;
             }
         }
 
+        // Update the hash after toggling sides to move
+        self.zobrist_hash ^= zobrist.side_to_move();
+
+        // Switch sides for next move
         self.switch_side();
 
         state
@@ -252,7 +359,7 @@ impl Board {
         // Restore side to move
         self.side_to_move = state.previous_side_to_move;
 
-        // Restore king positions if the moved piece was a king for castling
+        // Restore king positions
         if let Some((Piece::King, color)) = state.moved_piece {
             match color {
                 Color::White => self.white_king_pos = chess_move.from,
@@ -267,6 +374,12 @@ impl Board {
         self.black_king_moved = state.black_king_moved;
         self.black_kingside_rook_moved = state.black_kingside_rook_moved;
         self.black_queenside_rook_moved = state.black_queenside_rook_moved;
+
+        // Restore en passant
+        self.en_passant_target = state.previous_en_passant;
+
+        // Restore previous Zobrist hash
+        self.zobrist_hash = state.previous_zobrist_hash;
     }
 
     fn generate_piece_moves(&self, index: usize, piece: Piece, color: Color) -> Vec<ChessMove> {
@@ -2333,10 +2446,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_hash_updates_correctly() {
+        let mut board = Board::new();
+        let initial_hash = board.zobrist_hash;
+
+        // Make a move
+        let moves = board.generate_legal_moves();
+        let chess_move = moves[0];
+        let state = board.apply_move(chess_move);
+
+        let after_move_hash = board.zobrist_hash;
+        assert_ne!(
+            initial_hash, after_move_hash,
+            "Hash should change after move"
+        );
+
+        // Undo the move
+        board.undo_move(state);
+        assert_eq!(
+            initial_hash, board.zobrist_hash,
+            "Hash should restore after undo"
+        );
+
+        // Verify hash matches full computation
+        let computed_hash = compute_hash(&board);
+        assert_eq!(
+            board.zobrist_hash, computed_hash,
+            "Incremental hash should match full computation"
+        );
+    }
+
+    #[test]
+    fn test_transposition_same_position() {
+        // Two different move orders reaching same position
+        let mut board1 = Board::new();
+
+        // Path 1: e2e4, e7e5, Nf3, Nc6, d2d3
+        let moves1 = parse_moves(&["e2e4", "e7e5", "g1f3", "b8c6", "d2d3"]);
+        for m in moves1 {
+            board1.apply_move(m);
+        }
+        let hash1 = board1.zobrist_hash;
+
+        // Path 2: Nf3, Nc6, e2e4, e7e5, d2d3
+        let mut board2 = Board::new();
+        let moves2 = parse_moves(&["g1f3", "b8c6", "e2e4", "e7e5", "d2d3"]);
+        for m in moves2 {
+            board2.apply_move(m);
+        }
+        let hash2 = board2.zobrist_hash;
+
+        assert_eq!(hash1, hash2, "Same position should have same hash!");
+    }
+
     fn pos(s: &str) -> usize {
         let bytes = s.as_bytes();
         let file = (bytes[0] - b'a') as usize;
         let rank = (bytes[1] - b'1') as usize;
         rank * 8 + file
+    }
+
+    fn parse_moves(moves: &[&str]) -> Vec<ChessMove> {
+        moves
+            .iter()
+            .map(|move_str| {
+                // Parse move format: "e2e4" (from square, to square)
+                let from = pos(&move_str[0..2]);
+                let to = pos(&move_str[2..4]);
+                ChessMove {
+                    from,
+                    to,
+                    capture: false,
+                    move_type: ChessMoveType::Normal,
+                }
+            })
+            .collect()
     }
 }
