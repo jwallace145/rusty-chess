@@ -3,6 +3,7 @@ use crate::board::{Board, Color, Piece};
 pub struct PositionEvaluator;
 
 impl PositionEvaluator {
+    // Evaluate the positional score of a chess board state
     pub fn evaluate(board: &Board) -> i32 {
         let mut white_position: i32 = 0;
         let mut black_position: i32 = 0;
@@ -77,8 +78,9 @@ impl PositionEvaluator {
 const PAWN_TABLE: [i32; 64] = [
     0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5, 5,
     10, 27, 27, 10, 5, 5, 0, 0, 0, 25, 25, 0, 0, 0, 5, -5, -10, 10, 10, -10, -5, 5, 50, 50, 50, 50,
-    50, 50, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0,
+    50, 50, 50, 50, 200, 200, 200, 200, 200, 200, 200, 200,
 ];
+
 const KNIGHT_TABLE: [i32; 64] = [
     -50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15, 10,
     0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15, 15, 10,
@@ -125,6 +127,17 @@ const KING_ENDGAME_TABLE: [i32; 64] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_position_evaluator_evaluate_initial_position() {
+        let board: Board = Board::default();
+        let value: i32 = PositionEvaluator::evaluate(&board);
+        let expected_value: i32 = 0;
+        assert_eq!(
+            value, expected_value,
+            "Initial position should evaluate to positional score of 0"
+        );
+    }
 
     #[test]
     fn test_position_evaluator_piece_game_phase_values() {

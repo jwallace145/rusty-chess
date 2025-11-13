@@ -38,8 +38,8 @@ pub struct TranspositionTable {
 
 impl Default for TranspositionTable {
     fn default() -> Self {
-        // Default to 16MB transposition table (approximately 1 million entries)
-        Self::new_with_size_mb(256)
+        // Default to 1GB transposition table
+        Self::new_with_size_mb(1024)
     }
 }
 

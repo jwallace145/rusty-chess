@@ -1,6 +1,9 @@
 use crate::{
     board::{Board, Color},
-    eval::{material::MaterialEvaluator, position::PositionEvaluator},
+    eval::{
+        material::MaterialEvaluator, pawn_structure::PawnStructureEvaluator,
+        position::PositionEvaluator,
+    },
 };
 
 /// Evaluates chess board positions to guide the minimax search algorithm.
@@ -19,8 +22,9 @@ impl Evaluator {
     pub fn evaluate(board: &Board) -> i32 {
         let material: i32 = MaterialEvaluator::evaluate(board);
         let position: i32 = PositionEvaluator::evaluate(board);
+        let pawn_structure: i32 = PawnStructureEvaluator::evaluate(board);
 
-        let total: i32 = material + position;
+        let total: i32 = material + position + pawn_structure;
 
         // Return score from side to move's perspective
         match board.side_to_move {
