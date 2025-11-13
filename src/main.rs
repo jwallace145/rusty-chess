@@ -1,4 +1,5 @@
 use rusty_chess::board::{Board, ChessMove, ChessMoveState, Color};
+use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use rusty_chess::search::ChessEngine;
 use std::io::{self, Write};
 
@@ -8,6 +9,8 @@ struct AiGame {
     player_color: Color,
     ai_depth: u8,
     engine: ChessEngine,
+    game_recorder: GameRecorder,
+    move_counter: u16,
 }
 
 impl AiGame {
@@ -18,6 +21,8 @@ impl AiGame {
             player_color,
             ai_depth,
             engine: ChessEngine::new(),
+            game_recorder: GameRecorder::new(player_color, ai_depth),
+            move_counter: 0,
         }
     }
 
@@ -29,21 +34,29 @@ impl AiGame {
         println!("Type 'undo' to undo the last move (yours and AI's)");
         println!("Type 'quit' to exit the game\n");
 
+        let mut game_result = GameResult::InProgress;
+        let mut player_quit = false;
+
         loop {
             self.board.print();
 
             // Check for checkmate
             if self.is_checkmate() {
-                println!(
-                    "\nCheckmate! {:?} wins!",
-                    self.board.side_to_move.opponent()
-                );
+                let winner = self.board.side_to_move.opponent();
+                println!("\nCheckmate! {:?} wins!", winner);
+
+                game_result = if winner == self.player_color {
+                    GameResult::PlayerWin
+                } else {
+                    GameResult::AIWin
+                };
                 break;
             }
 
             // Check for stalemate
             if self.is_stalemate() {
                 println!("\nStalemate! The game is a draw.");
+                game_result = GameResult::Draw;
                 break;
             }
 
@@ -51,11 +64,24 @@ impl AiGame {
             if self.board.side_to_move == self.player_color {
                 // Player's turn
                 if !self.handle_player_turn() {
+                    player_quit = true;
                     break; // Player chose to quit
                 }
             } else {
                 // AI's turn
                 self.handle_ai_turn();
+            }
+        }
+
+        // Save game recording
+        if !player_quit {
+            match self.game_recorder.finalize_and_save(game_result) {
+                Ok(filename) => {
+                    println!("\nGame recorded successfully: {}", filename);
+                }
+                Err(e) => {
+                    eprintln!("Error saving game recording: {}", e);
+                }
             }
         }
     }
@@ -99,11 +125,64 @@ impl AiGame {
     fn handle_ai_turn(&mut self) {
         println!("{:?} to move (AI): Thinking...", self.board.side_to_move);
 
+        let ai_color = self.board.side_to_move;
+
         match self.engine.find_best_move(&self.board, self.ai_depth) {
             Some(best_move) => {
                 let from_notation = square_to_notation(best_move.from);
                 let to_notation = square_to_notation(best_move.to);
+                let move_notation = format!("{}-{}", from_notation, to_notation);
+
                 println!("AI plays: {},{}\n", from_notation, to_notation);
+
+                // Capture AI metrics
+                if let Some(search_metrics) = self.engine.get_last_search_metrics() {
+                    self.move_counter += 1;
+
+                    let nps = if search_metrics.search_time.as_secs_f64() > 0.0 {
+                        (search_metrics.nodes_explored as f64
+                            / search_metrics.search_time.as_secs_f64())
+                            as u64
+                    } else {
+                        0
+                    };
+
+                    let beta_cutoff_percentage = if search_metrics.nodes_explored > 0 {
+                        (search_metrics.beta_cutoffs as f64 / search_metrics.nodes_explored as f64)
+                            * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    let tt_hits = self.engine.get_tt_hits();
+                    let tt_misses = self.engine.get_tt_misses();
+                    let tt_hit_rate = if tt_hits + tt_misses > 0 {
+                        (tt_hits as f64 / (tt_hits + tt_misses) as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    let ai_metrics = AiMoveMetrics {
+                        search_time_ms: search_metrics.search_time.as_millis(),
+                        nodes_explored: search_metrics.nodes_explored,
+                        nodes_per_second: nps,
+                        beta_cutoffs: search_metrics.beta_cutoffs,
+                        beta_cutoff_percentage,
+                        max_depth_reached: search_metrics.max_depth_reached,
+                        tt_size_bytes: self.engine.get_tt_size_bytes(),
+                        tt_num_entries: self.engine.get_tt_num_entries(),
+                        tt_hits,
+                        tt_misses,
+                        tt_hit_rate_percentage: tt_hit_rate,
+                    };
+
+                    self.game_recorder.record_ai_move(
+                        self.move_counter,
+                        ai_color,
+                        move_notation,
+                        ai_metrics,
+                    );
+                }
 
                 let state = self.board.apply_move(best_move);
                 self.move_history.push(state);
@@ -117,6 +196,16 @@ impl AiGame {
     fn process_move(&mut self, input: &str) -> Result<(), String> {
         // Parse the move
         let chess_move = self.parse_move(input)?;
+
+        // Capture player move notation
+        let player_color = self.board.side_to_move;
+        let from_notation = square_to_notation(chess_move.from);
+        let to_notation = square_to_notation(chess_move.to);
+        let move_notation = format!("{}-{}", from_notation, to_notation);
+
+        self.move_counter += 1;
+        self.game_recorder
+            .record_player_move(self.move_counter, player_color, move_notation);
 
         // Apply the move
         let state = self.board.apply_move(chess_move);

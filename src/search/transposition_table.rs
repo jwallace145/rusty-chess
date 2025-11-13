@@ -137,6 +137,27 @@ impl TranspositionTable {
             format!("{:.2} GB", total_bytes as f64 / (1024.0 * 1024.0 * 1024.0))
         }
     }
+
+    /// Get the memory usage in bytes
+    pub fn size_bytes(&self) -> usize {
+        let entry_size = std::mem::size_of::<TTEntry>();
+        self.size() * entry_size
+    }
+
+    /// Get the total number of entries (capacity)
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
+    }
+
+    /// Get the number of cache hits
+    pub fn hits(&self) -> usize {
+        self.hits
+    }
+
+    /// Get the number of cache misses
+    pub fn misses(&self) -> usize {
+        self.misses
+    }
 }
 
 #[cfg(test)]

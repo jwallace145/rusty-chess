@@ -8,6 +8,7 @@ use crate::search::{Minimax, SearchHistory, SearchMetrics};
 /// Call `new_game()` to clear the cache between games.
 pub struct ChessEngine {
     tt: TranspositionTable,
+    last_search_metrics: Option<SearchMetrics>,
 }
 
 impl Default for ChessEngine {
@@ -20,6 +21,7 @@ impl ChessEngine {
     pub fn new() -> Self {
         Self {
             tt: TranspositionTable::default(),
+            last_search_metrics: None,
         }
     }
 
@@ -32,6 +34,9 @@ impl ChessEngine {
 
         self.print_search_stats(&metrics);
 
+        // Store metrics for later retrieval
+        self.last_search_metrics = Some(metrics);
+
         result
     }
 
@@ -40,9 +45,34 @@ impl ChessEngine {
         self.tt.clear();
     }
 
-    /// Get transposition table statistics
+    /// Get the last search metrics (from the most recent find_best_move call)
+    pub fn get_last_search_metrics(&self) -> Option<SearchMetrics> {
+        self.last_search_metrics
+    }
+
+    /// Get transposition table statistics (hits, misses)
     pub fn get_tt_stats(&self) -> (usize, usize) {
         self.tt.stats()
+    }
+
+    /// Get transposition table size in bytes
+    pub fn get_tt_size_bytes(&self) -> usize {
+        self.tt.size_bytes()
+    }
+
+    /// Get transposition table number of entries (capacity)
+    pub fn get_tt_num_entries(&self) -> usize {
+        self.tt.num_entries()
+    }
+
+    /// Get transposition table hits
+    pub fn get_tt_hits(&self) -> usize {
+        self.tt.hits()
+    }
+
+    /// Get transposition table misses
+    pub fn get_tt_misses(&self) -> usize {
+        self.tt.misses()
     }
 
     fn print_search_stats(&self, metrics: &SearchMetrics) {

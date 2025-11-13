@@ -5,7 +5,7 @@ use crate::search::SearchHistory;
 use std::time::Instant;
 
 /// Statistics gathered during a minimax search operation.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct SearchMetrics {
     /// Total number of nodes explored during search
     pub nodes_explored: u64,
