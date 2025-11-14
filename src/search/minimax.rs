@@ -1,8 +1,11 @@
+use super::quiescence::Quiescence;
 use super::transposition_table::TranspositionTable;
 use crate::board::{Board, ChessMove, Piece};
-use crate::eval::Evaluator;
 use crate::search::SearchHistory;
 use std::time::Instant;
+
+/// Maximum depth for quiescence search
+const MAX_QUIESCENCE_DEPTH: u8 = 4;
 
 /// Statistics gathered during a minimax search operation.
 #[derive(Debug, Default, Clone, Copy)]
@@ -141,11 +144,17 @@ impl Minimax {
             return score;
         }
 
-        // Leaf node - evaluate position
+        // Leaf node - run quiescence search to avoid horizon effect
         if depth == 0 {
-            let score = Evaluator::evaluate(board);
-            tt.store(board.zobrist_hash, depth, score, None);
-            return score;
+            return Quiescence::search(
+                board,
+                alpha,
+                beta,
+                history,
+                tt,
+                metrics,
+                MAX_QUIESCENCE_DEPTH,
+            );
         }
 
         // Order moves for better pruning efficiency
