@@ -20,7 +20,8 @@ impl AiGame {
             move_history: Vec::new(),
             player_color,
             ai_depth,
-            engine: ChessEngine::new(),
+            engine: ChessEngine::with_opening_book("./opening_book.bin")
+                .expect("Failed to load opening book"),
             game_recorder: GameRecorder::new(player_color, ai_depth),
             move_counter: 0,
         }

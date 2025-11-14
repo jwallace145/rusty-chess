@@ -1,5 +1,6 @@
 use super::transposition_table::TranspositionTable;
 use crate::board::{Board, ChessMove};
+use crate::opening::OpeningBook;
 use crate::search::{Minimax, SearchHistory, SearchMetrics};
 
 /// Chess move search engine using minimax with alpha-beta pruning.
@@ -9,6 +10,8 @@ use crate::search::{Minimax, SearchHistory, SearchMetrics};
 pub struct ChessEngine {
     tt: TranspositionTable,
     last_search_metrics: Option<SearchMetrics>,
+    opening_book: Option<OpeningBook>,
+    use_opening_book: bool,
 }
 
 impl Default for ChessEngine {
@@ -22,10 +25,48 @@ impl ChessEngine {
         Self {
             tt: TranspositionTable::default(),
             last_search_metrics: None,
+            opening_book: None,
+            use_opening_book: false,
         }
     }
 
+    /// Creates a new ChessEngine with an opening book loaded from a file.
+    pub fn with_opening_book(book_path: &str) -> std::io::Result<Self> {
+        let book = OpeningBook::load(book_path)?;
+        Ok(Self {
+            tt: TranspositionTable::default(),
+            last_search_metrics: None,
+            opening_book: Some(book),
+            use_opening_book: true,
+        })
+    }
+
+    /// Sets the opening book for this engine. If None, the opening book is disabled.
+    pub fn set_opening_book(&mut self, book: Option<OpeningBook>) {
+        self.opening_book = book;
+        self.use_opening_book = self.opening_book.is_some();
+    }
+
+    /// Enables or disables the opening book.
+    pub fn set_use_opening_book(&mut self, enabled: bool) {
+        self.use_opening_book = enabled && self.opening_book.is_some();
+    }
+
     pub fn find_best_move(&mut self, board: &Board, depth: u8) -> Option<ChessMove> {
+        // Check opening book first if enabled
+        if self.use_opening_book
+            && let Some(ref book) = self.opening_book
+            && let Some(uci_move) = book.probe(board.zobrist_hash)
+        {
+            // Try to parse and validate the UCI move
+            if let Ok(chess_move) = board.parse_uci(uci_move) {
+                return Some(chess_move);
+            } else {
+                eprintln!("Warning: Opening book returned invalid move: {}", uci_move);
+            }
+        }
+
+        // Fall back to minimax search
         let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
 

@@ -116,6 +116,77 @@ impl Board {
         legal_moves
     }
 
+    /// Parses a UCI move string (e.g., "e2e4", "e7e8q") and returns the corresponding ChessMove
+    /// if it's legal in the current position.
+    pub fn parse_uci(&self, uci: &str) -> Result<ChessMove, String> {
+        // Validate UCI string length (4 for normal moves, 5 for promotions)
+        if uci.len() != 4 && uci.len() != 5 {
+            return Err(format!("Invalid UCI format: {}", uci));
+        }
+
+        // Parse from square
+        let from = Self::parse_square(&uci[0..2])?;
+        // Parse to square
+        let to = Self::parse_square(&uci[2..4])?;
+
+        // Parse optional promotion piece
+        let promotion = if uci.len() == 5 {
+            match uci.chars().nth(4) {
+                Some('q') => Some(Piece::Queen),
+                Some('r') => Some(Piece::Rook),
+                Some('b') => Some(Piece::Bishop),
+                Some('n') => Some(Piece::Knight),
+                _ => return Err(format!("Invalid promotion piece: {}", uci)),
+            }
+        } else {
+            None
+        };
+
+        // Generate legal moves and find matching move
+        let legal_moves = self.generate_legal_moves();
+
+        for &mv in &legal_moves {
+            if mv.from == from && mv.to == to {
+                // For promotions, ensure the move type matches
+                if let Some(promo_piece) = promotion {
+                    if let ChessMoveType::Promotion(piece) = mv.move_type
+                        && piece == promo_piece
+                    {
+                        return Ok(mv);
+                    }
+                } else {
+                    // For non-promotions, return the matching move
+                    match mv.move_type {
+                        ChessMoveType::Promotion(_) => continue,
+                        _ => return Ok(mv),
+                    }
+                }
+            }
+        }
+
+        Err(format!("Move {} is not legal in current position", uci))
+    }
+
+    /// Parses a square in algebraic notation (e.g., "e2") to a board index (0-63)
+    fn parse_square(algebraic: &str) -> Result<usize, String> {
+        if algebraic.len() != 2 {
+            return Err(format!("Invalid square: {}", algebraic));
+        }
+
+        let mut chars = algebraic.chars();
+        let file = chars.next().unwrap();
+        let rank = chars.next().unwrap();
+
+        if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
+            return Err(format!("Invalid square: {}", algebraic));
+        }
+
+        let file_idx = (file as u8 - b'a') as usize;
+        let rank_idx = (rank as u8 - b'1') as usize;
+
+        Ok(rank_idx * 8 + file_idx)
+    }
+
     pub fn generate_moves(&self) -> Vec<ChessMove> {
         let mut moves = Vec::new();
 
