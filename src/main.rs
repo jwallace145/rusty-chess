@@ -3,6 +3,12 @@ use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use rusty_chess::search::ChessEngine;
 use std::io::{self, Write};
 
+enum PlayerAction {
+    Continue,
+    Quit,
+    Resign,
+}
+
 struct AiGame {
     board: Board,
     move_history: Vec<ChessMoveState>,
@@ -33,6 +39,7 @@ impl AiGame {
         println!("Enter moves in the format: e2,e4");
         println!("Type 'moves' to show all possible moves");
         println!("Type 'undo' to undo the last move (yours and AI's)");
+        println!("Type 'resign' to resign the game");
         println!("Type 'quit' to exit the game\n");
 
         let mut game_result = GameResult::InProgress;
@@ -64,9 +71,17 @@ impl AiGame {
             // Determine if it's the player's turn or AI's turn
             if self.board.side_to_move == self.player_color {
                 // Player's turn
-                if !self.handle_player_turn() {
-                    player_quit = true;
-                    break; // Player chose to quit
+                match self.handle_player_turn() {
+                    PlayerAction::Continue => {}
+                    PlayerAction::Quit => {
+                        player_quit = true;
+                        break;
+                    }
+                    PlayerAction::Resign => {
+                        println!("\nYou have resigned. AI wins!");
+                        game_result = GameResult::AIWin;
+                        break;
+                    }
                 }
             } else {
                 // AI's turn
@@ -87,7 +102,7 @@ impl AiGame {
         }
     }
 
-    fn handle_player_turn(&mut self) -> bool {
+    fn handle_player_turn(&mut self) -> PlayerAction {
         print!("{:?} to move (You): ", self.board.side_to_move);
         io::stdout().flush().unwrap();
 
@@ -101,7 +116,10 @@ impl AiGame {
         match input {
             "quit" => {
                 println!("Thanks for playing!");
-                return false;
+                return PlayerAction::Quit;
+            }
+            "resign" => {
+                return PlayerAction::Resign;
             }
             "undo" => {
                 if self.undo_move() {
@@ -120,7 +138,7 @@ impl AiGame {
             }
         }
 
-        true
+        PlayerAction::Continue
     }
 
     fn handle_ai_turn(&mut self) {
