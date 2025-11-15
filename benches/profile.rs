@@ -8,7 +8,7 @@ fn main() {
     let mut engine = ChessEngine::new();
 
     // Run multiple searches for better profiling data
-    for depth in 4..=6 {
+    for depth in 4..=8 {
         println!("\n=== Depth {} ===", depth);
         let result = engine.find_best_move(&board, depth);
         println!("Best move: {:?}", result);

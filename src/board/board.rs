@@ -100,20 +100,35 @@ impl Board {
         };
     }
 
+    /// Generates all legal moves for the current side to move.
+    ///
+    /// This method filters pseudo-legal moves by checking if they leave the king in check.
+    /// It uses buffer reuse to minimize allocations during attack detection.
+    ///
+    /// # Performance
+    /// This is a critical hot path during search. The implementation:
+    /// - Creates a single buffer for pseudo-legal move generation
+    /// - Reuses an attack-check buffer for all validation calls
+    /// - Reduces allocations from ~560 per call to ~2 per call
+    ///
+    /// # Returns
+    /// A vector containing all legal moves for the current position.
     pub fn generate_legal_moves(&self) -> Vec<ChessMove> {
-        let pseudo_moves = self.generate_moves();
-        let mut legal_moves = Vec::new();
+        let mut pseudo_moves = self.generate_moves();
+        let mut attack_buffer = Vec::with_capacity(64);
 
-        for m in pseudo_moves {
+        pseudo_moves.retain(|&m| {
             let mut board_copy = *self;
             board_copy.apply_move(m);
             let king_square = board_copy.king_pos(self.side_to_move);
-            if !board_copy.is_square_attacked(king_square, self.side_to_move.opponent()) {
-                legal_moves.push(m);
-            }
-        }
+            !board_copy.is_square_attacked_buffered(
+                king_square,
+                self.side_to_move.opponent(),
+                &mut attack_buffer,
+            )
+        });
 
-        legal_moves
+        pseudo_moves
     }
 
     /// Parses a UCI move string (e.g., "e2e4", "e7e8q") and returns the corresponding ChessMove
@@ -187,15 +202,22 @@ impl Board {
         Ok(rank_idx * 8 + file_idx)
     }
 
+    /// Generates all pseudo-legal moves for the current side to move.
+    ///
+    /// This method creates a single buffer and reuses it for all piece move generation,
+    /// eliminating multiple vector allocations. Pseudo-legal moves may leave the king
+    /// in check and must be filtered by `generate_legal_moves()`.
+    ///
+    /// # Returns
+    /// A vector containing all pseudo-legal moves for the current position.
     pub fn generate_moves(&self) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
 
         for (i, square) in self.squares.iter().enumerate() {
             if let Some((piece, color)) = square.0
                 && color == self.side_to_move
             {
-                let piece_moves = self.generate_piece_moves(i, piece, color);
-                moves.extend(piece_moves);
+                self.generate_piece_moves(i, piece, color, &mut moves);
             }
         }
 
@@ -453,19 +475,41 @@ impl Board {
         self.zobrist_hash = state.previous_zobrist_hash;
     }
 
-    fn generate_piece_moves(&self, index: usize, piece: Piece, color: Color) -> Vec<ChessMove> {
+    /// Generates moves for a piece at the given position into the provided buffer.
+    ///
+    /// This function dispatches to the appropriate piece-specific move generator.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the piece
+    /// * `piece` - The type of piece
+    /// * `color` - The color of the piece
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_piece_moves(
+        &self,
+        index: usize,
+        piece: Piece,
+        color: Color,
+        buffer: &mut Vec<ChessMove>,
+    ) {
         match piece {
-            Piece::Pawn => self.generate_pawn_moves(index, color),
-            Piece::Rook => self.generate_rook_moves(index, color),
-            Piece::Knight => self.generate_knight_moves(index, color),
-            Piece::Bishop => self.generate_bishop_moves(index, color),
-            Piece::Queen => self.generate_queen_moves(index, color),
-            Piece::King => self.generate_king_moves(index, color),
+            Piece::Pawn => self.generate_pawn_moves(index, color, buffer),
+            Piece::Rook => self.generate_rook_moves(index, color, buffer),
+            Piece::Knight => self.generate_knight_moves(index, color, buffer),
+            Piece::Bishop => self.generate_bishop_moves(index, color, buffer),
+            Piece::Queen => self.generate_queen_moves(index, color, buffer),
+            Piece::King => self.generate_king_moves(index, color, buffer),
         }
     }
 
-    fn generate_pawn_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+    /// Generates pawn moves into the provided buffer.
+    ///
+    /// Handles forward moves, double moves, captures, en passant, and promotions.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the pawn
+    /// * `color` - The color of the pawn
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_pawn_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
         let rank = index / 8;
         let file = index % 8;
 
@@ -485,7 +529,7 @@ impl Board {
                     ChessMoveType::Normal
                 };
 
-                moves.push(ChessMove {
+                buffer.push(ChessMove {
                     from: index,
                     to: forward_idx,
                     capture: false,
@@ -496,7 +540,7 @@ impl Board {
                     let double_rank = (rank as isize + 2 * forward) as usize;
                     let double_idx = double_rank * 8 + file;
                     if self.squares[double_idx].0.is_none() {
-                        moves.push(ChessMove {
+                        buffer.push(ChessMove {
                             from: index,
                             to: double_idx,
                             capture: false,
@@ -520,7 +564,7 @@ impl Board {
                             ChessMoveType::Normal
                         };
 
-                        moves.push(ChessMove {
+                        buffer.push(ChessMove {
                             from: index,
                             to: capture_idx,
                             capture: true,
@@ -529,7 +573,7 @@ impl Board {
                     }
                 } else if Some(capture_idx) == self.en_passant_target {
                     // en passant capture
-                    moves.push(ChessMove {
+                    buffer.push(ChessMove {
                         from: index,
                         to: capture_idx,
                         capture: true,
@@ -538,16 +582,25 @@ impl Board {
                 }
             }
         }
-
-        moves
     }
 
-    fn generate_rook_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
-        self.generate_sliding_moves(index, color, &[(1, 0), (-1, 0), (0, 1), (0, -1)])
+    /// Generates rook moves into the provided buffer.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the rook
+    /// * `color` - The color of the rook
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_rook_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
+        self.generate_sliding_moves(index, color, &[(1, 0), (-1, 0), (0, 1), (0, -1)], buffer);
     }
 
-    fn generate_knight_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+    /// Generates knight moves into the provided buffer.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the knight
+    /// * `color` - The color of the knight
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_knight_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
         let rank = (index / 8) as isize;
         let file = (index % 8) as isize;
         let deltas = [
@@ -567,13 +620,13 @@ impl Board {
             if (0..8).contains(&new_rank) && (0..8).contains(&new_file) {
                 let to = (new_rank * 8 + new_file) as usize;
                 match self.squares[to].0 {
-                    None => moves.push(ChessMove {
+                    None => buffer.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
                         move_type: ChessMoveType::Normal,
                     }),
-                    Some((_, target_color)) if target_color != color => moves.push(ChessMove {
+                    Some((_, target_color)) if target_color != color => buffer.push(ChessMove {
                         from: index,
                         to,
                         capture: true,
@@ -583,15 +636,25 @@ impl Board {
                 }
             }
         }
-
-        moves
     }
 
-    fn generate_bishop_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
-        self.generate_sliding_moves(index, color, &[(1, 1), (1, -1), (-1, 1), (-1, -1)])
+    /// Generates bishop moves into the provided buffer.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the bishop
+    /// * `color` - The color of the bishop
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_bishop_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
+        self.generate_sliding_moves(index, color, &[(1, 1), (1, -1), (-1, 1), (-1, -1)], buffer);
     }
 
-    fn generate_queen_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
+    /// Generates queen moves into the provided buffer.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the queen
+    /// * `color` - The color of the queen
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_queen_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
         self.generate_sliding_moves(
             index,
             color,
@@ -605,11 +668,19 @@ impl Board {
                 (-1, 1),
                 (-1, -1),
             ],
-        )
+            buffer,
+        );
     }
 
-    fn generate_king_moves(&self, index: usize, color: Color) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+    /// Generates king moves into the provided buffer.
+    ///
+    /// Handles normal king moves and castling.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the king
+    /// * `color` - The color of the king
+    /// * `buffer` - Mutable buffer to push moves into
+    fn generate_king_moves(&self, index: usize, color: Color, buffer: &mut Vec<ChessMove>) {
         let rank = (index / 8) as isize;
         let file = (index % 8) as isize;
         let deltas = [
@@ -629,14 +700,14 @@ impl Board {
             if (0..8).contains(&new_rank) && (0..8).contains(&new_file) {
                 let to = (new_rank * 8 + new_file) as usize;
                 match self.squares[to].0 {
-                    None => moves.push(ChessMove {
+                    None => buffer.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
                         move_type: ChessMoveType::Normal,
                     }),
                     Some((_, target_color)) if target_color != color => {
-                        moves.push(ChessMove {
+                        buffer.push(ChessMove {
                             from: index,
                             to,
                             capture: true,
@@ -660,7 +731,7 @@ impl Board {
                     && self.squares[7].0 == Some((Piece::Rook, Color::White))
                 // h1 has white rook
                 {
-                    moves.push(ChessMove {
+                    buffer.push(ChessMove {
                         from: index,
                         to: 6, // g1
                         capture: false,
@@ -678,7 +749,7 @@ impl Board {
                     && self.squares[0].0 == Some((Piece::Rook, Color::White))
                 // a1 has white rook
                 {
-                    moves.push(ChessMove {
+                    buffer.push(ChessMove {
                         from: index,
                         to: 2, // c1
                         capture: false,
@@ -696,7 +767,7 @@ impl Board {
                     && self.squares[63].0 == Some((Piece::Rook, Color::Black))
                 // h8 has black rook
                 {
-                    moves.push(ChessMove {
+                    buffer.push(ChessMove {
                         from: index,
                         to: 62, // g8
                         capture: false,
@@ -714,7 +785,7 @@ impl Board {
                     && self.squares[56].0 == Some((Piece::Rook, Color::Black))
                 // a8 has black rook
                 {
-                    moves.push(ChessMove {
+                    buffer.push(ChessMove {
                         from: index,
                         to: 58, // c8
                         capture: false,
@@ -723,17 +794,25 @@ impl Board {
                 }
             }
         }
-
-        moves
     }
 
+    /// Generates sliding piece moves (rook, bishop, queen) into the provided buffer.
+    ///
+    /// This function pushes moves directly into the buffer without clearing it first.
+    /// The caller is responsible for managing the buffer's state.
+    ///
+    /// # Arguments
+    /// * `index` - The position of the sliding piece
+    /// * `color` - The color of the sliding piece
+    /// * `directions` - Direction vectors for sliding (e.g., [(1,0), (-1,0)] for rook)
+    /// * `buffer` - Mutable buffer to push moves into
     fn generate_sliding_moves(
         &self,
         index: usize,
         color: Color,
         directions: &[(isize, isize)],
-    ) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+        buffer: &mut Vec<ChessMove>,
+    ) {
         let rank = (index / 8) as isize;
         let file = (index % 8) as isize;
 
@@ -743,14 +822,14 @@ impl Board {
             while (0..8).contains(&r) && (0..8).contains(&f) {
                 let to = (r * 8 + f) as usize;
                 match self.squares[to].0 {
-                    None => moves.push(ChessMove {
+                    None => buffer.push(ChessMove {
                         from: index,
                         to,
                         capture: false,
                         move_type: ChessMoveType::Normal,
                     }),
                     Some((_, target_color)) if target_color != color => {
-                        moves.push(ChessMove {
+                        buffer.push(ChessMove {
                             from: index,
                             to,
                             capture: true,
@@ -764,17 +843,53 @@ impl Board {
                 f += df;
             }
         }
-
-        moves
     }
 
+    /// Checks if a square is attacked by pieces of the given color.
+    ///
+    /// This method creates an internal buffer for move generation. For better performance
+    /// in loops, use `is_square_attacked_buffered()` with a reusable buffer.
+    ///
+    /// # Arguments
+    /// * `square` - The square index to check (0-63)
+    /// * `attacker_color` - The color of the attacking pieces
+    ///
+    /// # Returns
+    /// `true` if the square is attacked, `false` otherwise
     pub fn is_square_attacked(&self, square: usize, attacker_color: Color) -> bool {
+        let mut buffer = Vec::with_capacity(64);
+        self.is_square_attacked_buffered(square, attacker_color, &mut buffer)
+    }
+
+    /// Checks if a square is attacked by pieces of the given color using a provided buffer.
+    ///
+    /// This is the optimized version that reuses a buffer for move generation, avoiding
+    /// repeated allocations. The buffer is cleared before each piece's moves are generated.
+    ///
+    /// # Performance
+    /// This method is critical for legal move generation performance. During move validation,
+    /// this is called for every pseudo-legal move, making buffer reuse essential.
+    ///
+    /// # Arguments
+    /// * `square` - The square index to check (0-63)
+    /// * `attacker_color` - The color of the attacking pieces
+    /// * `buffer` - Mutable buffer for temporary move storage
+    ///
+    /// # Returns
+    /// `true` if the square is attacked, `false` otherwise
+    pub fn is_square_attacked_buffered(
+        &self,
+        square: usize,
+        attacker_color: Color,
+        buffer: &mut Vec<ChessMove>,
+    ) -> bool {
         for (i, sq) in self.squares.iter().enumerate() {
             if let Some((piece, color)) = sq.0
                 && color == attacker_color
             {
-                let attacks = self.generate_piece_moves(i, piece, color);
-                if attacks.iter().any(|m| m.to == square) {
+                buffer.clear();
+                self.generate_piece_moves(i, piece, color, buffer);
+                if buffer.iter().any(|m| m.to == square) {
                     return true;
                 }
             }
@@ -990,7 +1105,8 @@ mod tests {
         ];
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_pawn_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1013,7 +1129,8 @@ mod tests {
         }];
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_pawn_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1039,7 +1156,8 @@ mod tests {
             move_type: ChessMoveType::Normal,
         }];
 
-        let moves = board.generate_pawn_moves(pos("h2"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("h2"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1086,7 +1204,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_pawn_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1124,7 +1243,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_pawn_moves(pos("e5"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("e5"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1159,7 +1279,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_pawn_moves(pos("d4"), Color::Black);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("d4"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1183,7 +1304,8 @@ mod tests {
             move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
-        let moves = board.generate_pawn_moves(pos("e7"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("e7"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1224,7 +1346,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_pawn_moves(pos("d7"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("d7"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1245,7 +1368,8 @@ mod tests {
             move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
-        let moves = board.generate_pawn_moves(pos("e2"), Color::Black);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("e2"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1286,7 +1410,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_pawn_moves(pos("d2"), Color::Black);
+        let mut moves = Vec::new();
+        board.generate_pawn_moves(pos("d2"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1323,7 +1448,8 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_rook_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_rook_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1354,7 +1480,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let moves = board.generate_rook_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_rook_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1403,7 +1530,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let moves = board.generate_rook_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_rook_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1445,7 +1573,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_knight_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_knight_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1481,7 +1610,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_knight_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_knight_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1524,7 +1654,8 @@ mod tests {
             },
         ];
 
-        let moves = board.generate_knight_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_knight_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1583,7 +1714,8 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_bishop_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_bishop_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1644,7 +1776,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let moves = board.generate_bishop_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_bishop_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1712,7 +1845,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let moves = board.generate_bishop_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_bishop_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1811,7 +1945,8 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_queen_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_queen_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -1912,7 +2047,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let moves = board.generate_queen_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_queen_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2020,7 +2156,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let moves = board.generate_queen_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_queen_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2088,7 +2225,8 @@ mod tests {
         ];
 
         board.squares[from].0 = Some((piece, color));
-        let moves = board.generate_king_moves(from, color);
+        let mut moves = Vec::new();
+        board.generate_king_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2154,7 +2292,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let moves = board.generate_king_moves(from1, color);
+        let mut moves = Vec::new();
+        board.generate_king_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2227,7 +2366,8 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let moves = board.generate_king_moves(from1, color1);
+        let mut moves = Vec::new();
+        board.generate_king_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
         for expected_move in &expected {
@@ -2244,7 +2384,8 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let moves = board.generate_king_moves(pos("e1"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
             to: pos("g1"),
@@ -2263,7 +2404,8 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let moves = board.generate_king_moves(pos("e1"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let queenside_castle = ChessMove {
             from: pos("e1"),
             to: pos("c1"),
@@ -2282,7 +2424,8 @@ mod tests {
         board.black_king_pos = pos("e8");
         board.side_to_move = Color::Black;
 
-        let moves = board.generate_king_moves(pos("e8"), Color::Black);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e8"), Color::Black, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e8"),
             to: pos("g8"),
@@ -2301,7 +2444,8 @@ mod tests {
         board.black_king_pos = pos("e8");
         board.side_to_move = Color::Black;
 
-        let moves = board.generate_king_moves(pos("e8"), Color::Black);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e8"), Color::Black, &mut moves);
         let queenside_castle = ChessMove {
             from: pos("e8"),
             to: pos("c8"),
@@ -2321,7 +2465,8 @@ mod tests {
         board.white_king_moved = true;
         board.side_to_move = Color::White;
 
-        let moves = board.generate_king_moves(pos("e1"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
             to: pos("g1"),
@@ -2341,7 +2486,8 @@ mod tests {
         board.white_kingside_rook_moved = true;
         board.side_to_move = Color::White;
 
-        let moves = board.generate_king_moves(pos("e1"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
             to: pos("g1"),
@@ -2361,7 +2507,8 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let moves = board.generate_king_moves(pos("e1"), Color::White);
+        let mut moves = Vec::new();
+        board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
             to: pos("g1"),
