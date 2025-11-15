@@ -1,5 +1,5 @@
 use super::transposition_table::TranspositionTable;
-use crate::board::{Board, ChessMove, Piece};
+use crate::board::{Board, ChessMove, MoveGenerator, Piece};
 use crate::eval::Evaluator;
 use crate::search::SearchHistory;
 use std::time::Instant;
@@ -53,7 +53,7 @@ impl Minimax {
 
         // Preallocate move buffer for reuse across recursive calls
         let mut move_buffer = Vec::with_capacity(128);
-        board.generate_legal_moves_into(&mut move_buffer);
+        MoveGenerator::generate_legal_moves(board, &mut move_buffer);
 
         if move_buffer.is_empty() {
             history.pop(); // Clean up before returning
@@ -132,11 +132,11 @@ impl Minimax {
         }
 
         // Generate legal moves into the shared buffer
-        board.generate_legal_moves_into(move_buffer);
+        MoveGenerator::generate_legal_moves(board, move_buffer);
 
         // Check for terminal positions (checkmate or stalemate)
         if move_buffer.is_empty() {
-            let score = if board.is_checkmate() {
+            let score = if MoveGenerator::is_checkmate(board) {
                 // Losing position - adjust score by depth to prefer faster checkmates
                 -100_000 - (depth as i32)
             } else {
@@ -291,7 +291,10 @@ mod tests {
         let chess_move = best_move.unwrap();
         let mut test_board = board;
         test_board.apply_move(chess_move);
-        assert!(test_board.is_checkmate(), "Should deliver checkmate");
+        assert!(
+            MoveGenerator::is_checkmate(&test_board),
+            "Should deliver checkmate"
+        );
     }
 
     #[test]
@@ -325,7 +328,10 @@ mod tests {
         let chess_move = best_move.unwrap();
         let mut test_board = board;
         test_board.apply_move(chess_move);
-        assert!(test_board.is_checkmate(), "Should deliver checkmate")
+        assert!(
+            MoveGenerator::is_checkmate(&test_board),
+            "Should deliver checkmate"
+        )
     }
 
     fn pos(s: &str) -> usize {
