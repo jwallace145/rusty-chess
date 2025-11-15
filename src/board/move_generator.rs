@@ -99,7 +99,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_piece_moves(
+    pub fn generate_piece_moves(
         board: &Board,
         index: usize,
         piece: Piece,

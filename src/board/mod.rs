@@ -2,7 +2,7 @@
 mod board;
 pub mod chess_move;
 pub mod color;
-mod move_generator;
+pub mod move_generator;
 pub mod piece;
 
 pub use board::Board;

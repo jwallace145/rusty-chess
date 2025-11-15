@@ -1,8 +1,8 @@
 use crate::{
     board::{Board, Color},
     eval::{
-        material::MaterialEvaluator, pawn_structure::PawnStructureEvaluator,
-        position::PositionEvaluator,
+        material::MaterialEvaluator, mobility::MobilityEvaluator,
+        pawn_structure::PawnStructureEvaluator, position::PositionEvaluator,
     },
 };
 
@@ -23,8 +23,9 @@ impl Evaluator {
         let material: i32 = MaterialEvaluator::evaluate(board);
         let position: i32 = PositionEvaluator::evaluate(board);
         let pawn_structure: i32 = PawnStructureEvaluator::evaluate(board);
+        let mobility: i32 = MobilityEvaluator::evaluate(board);
 
-        let total: i32 = material + position + pawn_structure;
+        let total: i32 = material + position + pawn_structure + mobility;
 
         // Return score from side to move's perspective
         match board.side_to_move {
