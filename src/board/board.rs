@@ -453,7 +453,7 @@ impl Board {
         self.zobrist_hash = state.previous_zobrist_hash;
     }
 
-    fn generate_piece_moves(&self, index: usize, piece: Piece, color: Color) -> Vec<ChessMove> {
+    pub fn generate_piece_moves(&self, index: usize, piece: Piece, color: Color) -> Vec<ChessMove> {
         match piece {
             Piece::Pawn => self.generate_pawn_moves(index, color),
             Piece::Rook => self.generate_rook_moves(index, color),
@@ -872,6 +872,265 @@ impl Board {
         println!("   -------------------------");
         println!("    a  b  c  d  e  f  g  h");
         println!("\nSide to move: {:?}\n", self.side_to_move);
+    }
+
+    /// Parse a FEN (Forsyth-Edwards Notation) string into a Board
+    /// FEN format: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    /// Fields: piece_placement active_color castling en_passant halfmove_clock fullmove_number
+    pub fn from_fen(fen: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = fen.split_whitespace().collect();
+        if parts.len() < 4 {
+            return Err("Invalid FEN: must have at least 4 fields".to_string());
+        }
+
+        let mut board = Self {
+            squares: [Square(None); 64],
+            side_to_move: Color::White,
+            white_king_pos: 0,
+            black_king_pos: 0,
+            white_king_moved: true,
+            white_kingside_rook_moved: true,
+            white_queenside_rook_moved: true,
+            black_king_moved: true,
+            black_kingside_rook_moved: true,
+            black_queenside_rook_moved: true,
+            en_passant_target: None,
+            zobrist_hash: 0,
+        };
+
+        // Parse piece placement (field 1)
+        let ranks: Vec<&str> = parts[0].split('/').collect();
+        if ranks.len() != 8 {
+            return Err("Invalid FEN: must have 8 ranks".to_string());
+        }
+
+        for (rank_idx, rank_str) in ranks.iter().enumerate() {
+            let board_rank = 7 - rank_idx; // FEN goes from rank 8 to rank 1
+            let mut file = 0;
+
+            for ch in rank_str.chars() {
+                if file >= 8 {
+                    return Err(format!(
+                        "Invalid FEN: too many squares in rank {}",
+                        rank_idx + 1
+                    ));
+                }
+
+                let idx = board_rank * 8 + file;
+
+                if ch.is_ascii_digit() {
+                    // Empty squares
+                    let empty_count = ch.to_digit(10).unwrap() as usize;
+                    file += empty_count;
+                } else {
+                    // Piece
+                    let color = if ch.is_uppercase() {
+                        Color::White
+                    } else {
+                        Color::Black
+                    };
+
+                    let piece = match ch.to_ascii_lowercase() {
+                        'p' => Piece::Pawn,
+                        'n' => Piece::Knight,
+                        'b' => Piece::Bishop,
+                        'r' => Piece::Rook,
+                        'q' => Piece::Queen,
+                        'k' => Piece::King,
+                        _ => return Err(format!("Invalid FEN: unknown piece '{}'", ch)),
+                    };
+
+                    board.squares[idx] = Square(Some((piece, color)));
+
+                    // Track king positions
+                    if piece == Piece::King {
+                        match color {
+                            Color::White => board.white_king_pos = idx,
+                            Color::Black => board.black_king_pos = idx,
+                        }
+                    }
+
+                    file += 1;
+                }
+            }
+
+            if file != 8 {
+                return Err(format!(
+                    "Invalid FEN: rank {} has {} squares, expected 8",
+                    rank_idx + 1,
+                    file
+                ));
+            }
+        }
+
+        // Parse active color (field 2)
+        board.side_to_move = match parts[1] {
+            "w" => Color::White,
+            "b" => Color::Black,
+            _ => {
+                return Err(format!(
+                    "Invalid FEN: active color must be 'w' or 'b', got '{}'",
+                    parts[1]
+                ));
+            }
+        };
+
+        // Parse castling availability (field 3)
+        if parts[2] != "-" {
+            for ch in parts[2].chars() {
+                match ch {
+                    'K' => board.white_kingside_rook_moved = false,
+                    'Q' => board.white_queenside_rook_moved = false,
+                    'k' => board.black_kingside_rook_moved = false,
+                    'q' => board.black_queenside_rook_moved = false,
+                    _ => return Err(format!("Invalid FEN: unknown castling right '{}'", ch)),
+                }
+            }
+
+            // If rooks haven't moved, king also hasn't moved
+            if !board.white_kingside_rook_moved || !board.white_queenside_rook_moved {
+                board.white_king_moved = false;
+            }
+            if !board.black_kingside_rook_moved || !board.black_queenside_rook_moved {
+                board.black_king_moved = false;
+            }
+        }
+
+        // Parse en passant target square (field 4)
+        if parts[3] != "-" {
+            let ep_str = parts[3];
+            if ep_str.len() == 2 {
+                let file = (ep_str.as_bytes()[0] - b'a') as usize;
+                let rank = (ep_str.as_bytes()[1] - b'1') as usize;
+                if file < 8 && rank < 8 {
+                    board.en_passant_target = Some(rank * 8 + file);
+                } else {
+                    return Err(format!(
+                        "Invalid FEN: en passant square '{}' out of bounds",
+                        ep_str
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "Invalid FEN: en passant square '{}' invalid format",
+                    ep_str
+                ));
+            }
+        }
+
+        // Halfmove clock and fullmove number (fields 5-6) are not stored in the Board struct
+        // They're typically used for draw detection and game recording
+
+        // Compute Zobrist hash
+        board.zobrist_hash = compute_hash(&board);
+
+        Ok(board)
+    }
+
+    /// Convert the Board to a FEN (Forsyth-Edwards Notation) string
+    /// FEN format: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    pub fn to_fen(&self) -> String {
+        let mut fen = String::new();
+
+        // Field 1: Piece placement
+        for rank in (0..8).rev() {
+            let mut empty_count = 0;
+
+            for file in 0..8 {
+                let idx = rank * 8 + file;
+                match self.squares[idx].0 {
+                    None => {
+                        empty_count += 1;
+                    }
+                    Some((piece, color)) => {
+                        // Write accumulated empty squares
+                        if empty_count > 0 {
+                            fen.push_str(&empty_count.to_string());
+                            empty_count = 0;
+                        }
+
+                        // Write piece
+                        let ch = match piece {
+                            Piece::Pawn => 'p',
+                            Piece::Knight => 'n',
+                            Piece::Bishop => 'b',
+                            Piece::Rook => 'r',
+                            Piece::Queen => 'q',
+                            Piece::King => 'k',
+                        };
+
+                        let ch = if color == Color::White {
+                            ch.to_ascii_uppercase()
+                        } else {
+                            ch
+                        };
+
+                        fen.push(ch);
+                    }
+                }
+            }
+
+            // Write trailing empty squares
+            if empty_count > 0 {
+                fen.push_str(&empty_count.to_string());
+            }
+
+            // Add rank separator (except after last rank)
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        // Field 2: Active color
+        fen.push(' ');
+        fen.push(match self.side_to_move {
+            Color::White => 'w',
+            Color::Black => 'b',
+        });
+
+        // Field 3: Castling availability
+        fen.push(' ');
+        let mut castling = String::new();
+        if !self.white_king_moved {
+            if !self.white_kingside_rook_moved {
+                castling.push('K');
+            }
+            if !self.white_queenside_rook_moved {
+                castling.push('Q');
+            }
+        }
+        if !self.black_king_moved {
+            if !self.black_kingside_rook_moved {
+                castling.push('k');
+            }
+            if !self.black_queenside_rook_moved {
+                castling.push('q');
+            }
+        }
+        if castling.is_empty() {
+            fen.push('-');
+        } else {
+            fen.push_str(&castling);
+        }
+
+        // Field 4: En passant target square
+        fen.push(' ');
+        if let Some(ep) = self.en_passant_target {
+            let file = (ep % 8) as u8 + b'a';
+            let rank = (ep / 8) as u8 + b'1';
+            fen.push(file as char);
+            fen.push(rank as char);
+        } else {
+            fen.push('-');
+        }
+
+        // Field 5: Halfmove clock (for 50-move rule, not tracked in our Board)
+        fen.push_str(" 0");
+
+        // Field 6: Fullmove number (not tracked in our Board)
+        fen.push_str(" 1");
+
+        fen
     }
 }
 

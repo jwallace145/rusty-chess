@@ -230,14 +230,14 @@ impl Minimax {
 
     fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
         if chess_move.capture {
-            let victim_value = if let Some((piece, _)) = board.squares[chess_move.to].0 {
+            let victim_value: i32 = if let Some((piece, _)) = board.squares[chess_move.to].0 {
                 Self::piece_value(piece)
             } else {
                 100 // En passant captures a pawn
             };
 
             // NEW: Get attacker value
-            let attacker_value = if let Some((piece, _)) = board.squares[chess_move.from].0 {
+            let attacker_value: i32 = if let Some((piece, _)) = board.squares[chess_move.from].0 {
                 Self::piece_value(piece)
             } else {
                 0 // Shouldn't happen

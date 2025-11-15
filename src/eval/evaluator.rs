@@ -1,19 +1,23 @@
 use crate::{
     board::{Board, Color},
     eval::{
-        material::MaterialEvaluator, pawn_structure::PawnStructureEvaluator,
-        position::PositionEvaluator,
+        material::MaterialEvaluator, mobility::MobilityEvaluator,
+        pawn_structure::PawnStructureEvaluator, position::PositionEvaluator,
+        threatened::ThreatenedEvaluator,
     },
 };
 
 /// Evaluates chess board positions to guide the minimax search algorithm.
 ///
-/// Converts board states into numerical scores by combining two components:
+/// Converts board states into numerical scores by combining multiple components:
 ///
 /// - **Material**: Assigns values to pieces (e.g., Queen=900, Rook=500, Pawn=100)
 ///   to encourage maintaining strong pieces
 /// - **Positional**: Rewards pieces for occupying favorable squares using
 ///   piece-square tables (e.g., knights in the center, pawns advancing)
+/// - **Pawn Structure**: Evaluates pawn formations, penalizing weaknesses
+/// - **Mobility**: Rewards having more legal moves available
+/// - **Threatened Pieces**: Penalizes hanging and poorly defended pieces
 ///
 /// Returns positive scores when White is winning, negative when Black is winning.
 pub struct Evaluator;
@@ -23,8 +27,10 @@ impl Evaluator {
         let material: i32 = MaterialEvaluator::evaluate(board);
         let position: i32 = PositionEvaluator::evaluate(board);
         let pawn_structure: i32 = PawnStructureEvaluator::evaluate(board);
+        let mobility: i32 = MobilityEvaluator::evaluate(board);
+        let threatened: i32 = ThreatenedEvaluator::evaluate(board);
 
-        let total: i32 = material + position + pawn_structure;
+        let total: i32 = material + position + pawn_structure + mobility + threatened;
 
         // Return score from side to move's perspective
         match board.side_to_move {
