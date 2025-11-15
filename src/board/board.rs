@@ -117,18 +117,67 @@ impl Board {
         let mut pseudo_moves = self.generate_moves();
         let mut attack_buffer = Vec::with_capacity(64);
 
-        pseudo_moves.retain(|&m| {
+        // Use manual loop with swap_remove for O(1) removal instead of retain's O(n) shifting
+        let mut i = 0;
+        while i < pseudo_moves.len() {
+            let m = pseudo_moves[i];
             let mut board_copy = *self;
             board_copy.apply_move(m);
             let king_square = board_copy.king_pos(self.side_to_move);
-            !board_copy.is_square_attacked_buffered(
+
+            let is_legal = !board_copy.is_square_attacked_buffered(
                 king_square,
                 self.side_to_move.opponent(),
                 &mut attack_buffer,
-            )
-        });
+            );
+
+            if is_legal {
+                i += 1;
+            } else {
+                pseudo_moves.swap_remove(i);
+            }
+        }
 
         pseudo_moves
+    }
+
+    /// Generates all legal moves into the provided buffer.
+    ///
+    /// This is a buffer-reusing version of `generate_legal_moves()` that eliminates
+    /// Vec allocation on every call during search. The buffer is cleared before being filled.
+    ///
+    /// # Performance
+    /// This method is designed for use in recursive search where the same buffer
+    /// can be reused across many calls, reducing allocation overhead.
+    ///
+    /// # Arguments
+    /// * `buffer` - A mutable Vec to fill with legal moves. Will be cleared before use.
+    pub fn generate_legal_moves_into(&self, buffer: &mut Vec<ChessMove>) {
+        buffer.clear();
+        self.generate_moves_into(buffer);
+
+        let mut attack_buffer = Vec::with_capacity(64);
+
+        // Filter out illegal moves using swap_remove for O(1) removal
+        let mut i = 0;
+        while i < buffer.len() {
+            let m = buffer[i];
+            let mut board_copy = *self;
+            board_copy.apply_move(m);
+            let king_square = board_copy.king_pos(self.side_to_move);
+
+            let is_legal = !board_copy.is_square_attacked_buffered(
+                king_square,
+                self.side_to_move.opponent(),
+                &mut attack_buffer,
+            );
+
+            if is_legal {
+                i += 1;
+            } else {
+                buffer.swap_remove(i);
+            }
+        }
     }
 
     /// Parses a UCI move string (e.g., "e2e4", "e7e8q") and returns the corresponding ChessMove
@@ -209,7 +258,8 @@ impl Board {
     /// in check and must be filtered by `generate_legal_moves()`.
     ///
     /// # Returns
-    /// A vector containing all pseudo-legal moves for the current position.
+    /// A SmallVec containing all pseudo-legal moves for the current position.
+    /// Uses inline storage for up to 64 moves to avoid heap allocation in most cases.
     pub fn generate_moves(&self) -> Vec<ChessMove> {
         let mut moves = Vec::with_capacity(128);
 
@@ -222,6 +272,25 @@ impl Board {
         }
 
         moves
+    }
+
+    /// Generates all pseudo-legal moves into the provided buffer.
+    ///
+    /// This is a buffer-reusing version of `generate_moves()` that eliminates
+    /// Vec allocation. The buffer is cleared before being filled.
+    ///
+    /// # Arguments
+    /// * `buffer` - A mutable Vec to fill with pseudo-legal moves. Will be cleared before use.
+    pub fn generate_moves_into(&self, buffer: &mut Vec<ChessMove>) {
+        buffer.clear();
+
+        for (i, square) in self.squares.iter().enumerate() {
+            if let Some((piece, color)) = square.0
+                && color == self.side_to_move
+            {
+                self.generate_piece_moves(i, piece, color, buffer);
+            }
+        }
     }
 
     pub fn apply_move(&mut self, chess_move: ChessMove) -> ChessMoveState {
@@ -483,7 +552,7 @@ impl Board {
     /// * `index` - The position of the piece
     /// * `piece` - The type of piece
     /// * `color` - The color of the piece
-    /// * `buffer` - Mutable buffer to push moves into
+    /// * `buffer` - Mutable SmallVec buffer to push moves into
     fn generate_piece_moves(
         &self,
         index: usize,
@@ -1105,7 +1174,7 @@ mod tests {
         ];
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1129,7 +1198,7 @@ mod tests {
         }];
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1156,7 +1225,7 @@ mod tests {
             move_type: ChessMoveType::Normal,
         }];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("h2"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1204,7 +1273,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1243,7 +1312,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("e5"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1279,7 +1348,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("d4"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1304,7 +1373,7 @@ mod tests {
             move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("e7"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1346,7 +1415,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("d7"), Color::White, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1368,7 +1437,7 @@ mod tests {
             move_type: ChessMoveType::Promotion(Piece::Queen),
         }];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("e2"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1410,7 +1479,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_pawn_moves(pos("d2"), Color::Black, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1448,7 +1517,7 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_rook_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1480,7 +1549,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_rook_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1530,7 +1599,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_rook_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1573,7 +1642,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_knight_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1610,7 +1679,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_knight_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1654,7 +1723,7 @@ mod tests {
             },
         ];
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_knight_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1714,7 +1783,7 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_bishop_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1776,7 +1845,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_bishop_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1845,7 +1914,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_bishop_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -1945,7 +2014,7 @@ mod tests {
         }
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_queen_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2047,7 +2116,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_queen_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2156,7 +2225,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_queen_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2225,7 +2294,7 @@ mod tests {
         ];
 
         board.squares[from].0 = Some((piece, color));
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(from, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2292,7 +2361,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color));
         board.squares[from2].0 = Some((piece2, color));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(from1, color, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2366,7 +2435,7 @@ mod tests {
         board.squares[from1].0 = Some((piece1, color1));
         board.squares[from2].0 = Some((piece2, color2));
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(from1, color1, &mut moves);
 
         assert_eq!(moves.len(), expected.len());
@@ -2384,7 +2453,7 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
@@ -2404,7 +2473,7 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let queenside_castle = ChessMove {
             from: pos("e1"),
@@ -2424,7 +2493,7 @@ mod tests {
         board.black_king_pos = pos("e8");
         board.side_to_move = Color::Black;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e8"), Color::Black, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e8"),
@@ -2444,7 +2513,7 @@ mod tests {
         board.black_king_pos = pos("e8");
         board.side_to_move = Color::Black;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e8"), Color::Black, &mut moves);
         let queenside_castle = ChessMove {
             from: pos("e8"),
@@ -2465,7 +2534,7 @@ mod tests {
         board.white_king_moved = true;
         board.side_to_move = Color::White;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
@@ -2486,7 +2555,7 @@ mod tests {
         board.white_kingside_rook_moved = true;
         board.side_to_move = Color::White;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),
@@ -2507,7 +2576,7 @@ mod tests {
         board.white_king_pos = pos("e1");
         board.side_to_move = Color::White;
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(128);
         board.generate_king_moves(pos("e1"), Color::White, &mut moves);
         let kingside_castle = ChessMove {
             from: pos("e1"),

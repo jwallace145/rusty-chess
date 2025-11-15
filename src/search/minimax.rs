@@ -51,21 +51,25 @@ impl Minimax {
         // Initialize history with the current position
         history.push(board.zobrist_hash);
 
-        let legal_moves = board.generate_legal_moves();
+        // Preallocate move buffer for reuse across recursive calls
+        let mut move_buffer = Vec::with_capacity(128);
+        board.generate_legal_moves_into(&mut move_buffer);
 
-        if legal_moves.is_empty() {
+        if move_buffer.is_empty() {
             history.pop(); // Clean up before returning
             metrics.search_time = start_time.elapsed();
             return None;
         }
 
         // Order moves for better alpha-beta performance
-        let ordered_moves = Self::order_moves(board, legal_moves, tt);
+        Self::order_moves(board, &mut move_buffer, tt);
 
-        let mut best_move = ordered_moves[0];
+        // Copy moves to avoid them being overwritten during recursive calls
+        let moves: Vec<ChessMove> = move_buffer.to_vec();
+        let mut best_move = moves[0];
         let mut best_score = i32::MIN;
 
-        for chess_move in ordered_moves {
+        for chess_move in moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
@@ -81,6 +85,7 @@ impl Minimax {
                 tt,
                 metrics,
                 depth,
+                &mut move_buffer,
             );
 
             // Pop position after returning
@@ -107,6 +112,7 @@ impl Minimax {
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
         original_depth: u8,
+        move_buffer: &mut Vec<ChessMove>,
     ) -> i32 {
         // Track nodes explored and max depth
         metrics.nodes_explored += 1;
@@ -125,10 +131,11 @@ impl Minimax {
             return entry.score;
         }
 
-        let legal_moves = board.generate_legal_moves();
+        // Generate legal moves into the shared buffer
+        board.generate_legal_moves_into(move_buffer);
 
         // Check for terminal positions (checkmate or stalemate)
-        if legal_moves.is_empty() {
+        if move_buffer.is_empty() {
             let score = if board.is_checkmate() {
                 // Losing position - adjust score by depth to prefer faster checkmates
                 -100_000 - (depth as i32)
@@ -149,10 +156,13 @@ impl Minimax {
         }
 
         // Order moves for better pruning efficiency
-        let ordered_moves = Self::order_moves(board, legal_moves, tt);
+        Self::order_moves(board, move_buffer, tt);
+
+        // Copy moves to avoid them being overwritten during recursive calls
+        let moves: Vec<ChessMove> = move_buffer.to_vec();
         let mut best_move = None;
 
-        for chess_move in ordered_moves {
+        for chess_move in moves {
             let mut board_copy = *board;
             board_copy.apply_move(chess_move);
 
@@ -168,6 +178,7 @@ impl Minimax {
                 tt,
                 metrics,
                 original_depth,
+                move_buffer,
             );
 
             // Pop position after returning
@@ -195,11 +206,9 @@ impl Minimax {
 
     /// Order moves to search promising moves first (improves alpha-beta pruning)
     /// Priority: TT best move first, then captures by victim value, then non-captures
-    fn order_moves(
-        board: &Board,
-        mut moves: Vec<ChessMove>,
-        tt: &mut TranspositionTable,
-    ) -> Vec<ChessMove> {
+    ///
+    /// This method operates in-place on the provided buffer for better performance.
+    fn order_moves(board: &Board, moves: &mut [ChessMove], tt: &mut TranspositionTable) {
         // Try to get best move from transposition table
         if let Some(entry) = tt.probe(board.zobrist_hash, 0)
             && let Some(tt_best_move) = entry.best_move
@@ -210,13 +219,12 @@ impl Minimax {
                 moves.swap(0, pos);
                 // Sort the rest by capture value
                 moves[1..].sort_by_key(|m| Self::move_priority(board, m));
-                return moves;
+                return;
             }
         }
 
         // No TT move found, sort all moves by priority
         moves.sort_by_key(|m| Self::move_priority(board, m));
-        moves
     }
 
     fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
