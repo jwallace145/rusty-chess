@@ -374,6 +374,32 @@ impl Board {
         !self.black_king_moved && !self.black_queenside_rook_moved
     }
 
+    pub fn has_castled(&self, color: Color) -> bool {
+        match color {
+            Color::White => {
+                // White king castled if it has moved and is on g1 (6) or c1 (2)
+                self.white_king_moved && (self.white_king_pos == 6 || self.white_king_pos == 2)
+            }
+            Color::Black => {
+                // Black king castled if it has moved and is on g8 (62) or c8 (58)
+                self.black_king_moved && (self.black_king_pos == 62 || self.black_king_pos == 58)
+            }
+        }
+    }
+
+    pub fn count(&self, color: Color, piece: Piece) -> u32 {
+        self.squares
+            .iter()
+            .filter(|square| {
+                if let Some((p, c)) = square.0 {
+                    p == piece && c == color
+                } else {
+                    false
+                }
+            })
+            .count() as u32
+    }
+
     pub fn parse_uci(&self, uci: &str) -> Result<ChessMove, String> {
         use super::move_generator::MoveGenerator;
 

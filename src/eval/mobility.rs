@@ -2,7 +2,7 @@ use crate::board::{Board, Color, MoveGenerator};
 
 pub struct MobilityEvaluator;
 
-const MOBILITY_WEIGHT: i32 = 4;
+const MOBILITY_WEIGHT: i32 = 6;
 
 impl MobilityEvaluator {
     pub fn evaluate(board: &Board) -> i32 {
