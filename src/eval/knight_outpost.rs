@@ -1,12 +1,15 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
+
+const OUTPOST_BONUS: i32 = 20; // base outpost value
+const SUPPORTED_BONUS: i32 = 10; // extra if supported by pawn
 
 pub struct KnightOutpostEvaluator;
 
-impl KnightOutpostEvaluator {
-    const OUTPOST_BONUS: i32 = 20; // base outpost value
-    const SUPPORTED_BONUS: i32 = 10; // extra if supported by pawn
-
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for KnightOutpostEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         for (sq, square) in board.squares.iter().enumerate() {
@@ -19,17 +22,19 @@ impl KnightOutpostEvaluator {
 
         score
     }
+}
 
+impl KnightOutpostEvaluator {
     fn evaluate_knight(board: &Board, sq: usize, color: Color) -> i32 {
         if !Self::is_outpost(board, sq, color) {
             return 0;
         }
 
-        let mut score = Self::OUTPOST_BONUS;
+        let mut score = OUTPOST_BONUS;
 
         // Add support bonus if friendly pawn defends the square
         if Self::is_supported_by_pawn(board, sq, color) {
-            score += Self::SUPPORTED_BONUS;
+            score += SUPPORTED_BONUS;
         }
 
         // White gets positive, Black gets negative

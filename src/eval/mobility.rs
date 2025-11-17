@@ -1,17 +1,22 @@
-use crate::board::{Board, Color, MoveGenerator};
-
-pub struct MobilityEvaluator;
+use crate::{
+    board::{Board, Color, MoveGenerator},
+    eval::evaluator::BoardEvaluator,
+};
 
 const MOBILITY_WEIGHT: i32 = 6;
 
-impl MobilityEvaluator {
-    pub fn evaluate(board: &Board) -> i32 {
+pub struct MobilityEvaluator;
+
+impl BoardEvaluator for MobilityEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_mobility: i32 = Self::count_mobility(board, Color::White);
         let black_mobility: i32 = Self::count_mobility(board, Color::Black);
 
         MOBILITY_WEIGHT * (white_mobility - black_mobility)
     }
+}
 
+impl MobilityEvaluator {
     /// Count total pseudo-legal moves for all pieces
     fn count_mobility(board: &Board, color: Color) -> i32 {
         let mut moves = Vec::with_capacity(64);
@@ -41,7 +46,7 @@ mod tests {
     #[test]
     fn test_starting_position_mobility() {
         let board = Board::new();
-        let score = MobilityEvaluator::evaluate(&board);
+        let score = MobilityEvaluator.evaluate(&board);
 
         // At the starting position, both sides have equal mobility
         // White has 20 moves: 16 pawn moves (8 pawns * 2 moves each) + 4 knight moves (2 knights * 2 moves each)
@@ -64,7 +69,7 @@ mod tests {
         board.black_king_pos = 60;
         board.side_to_move = Color::White;
 
-        let score = MobilityEvaluator::evaluate(&board);
+        let score = MobilityEvaluator.evaluate(&board);
 
         // White should have positive mobility score (queen has ~27 moves, king has ~5)
         // Black only has king moves (~5)
@@ -89,7 +94,7 @@ mod tests {
         board.black_king_pos = 60;
         board.side_to_move = Color::White;
 
-        let score = MobilityEvaluator::evaluate(&board);
+        let score = MobilityEvaluator.evaluate(&board);
 
         // Black should have negative mobility score (meaning black has advantage)
         assert!(

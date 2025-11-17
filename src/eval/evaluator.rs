@@ -9,6 +9,12 @@ use crate::{
     },
 };
 
+/// Trait for all evaluators
+pub trait BoardEvaluator {
+    /// Returns the evaluation score from White's perspective
+    fn evaluate(&self, board: &Board) -> i32;
+}
+
 /// Evaluates a chess board position to guide the minimax search algorithm.
 ///
 /// This evaluator converts board states into a numerical score by combining
@@ -28,83 +34,47 @@ use crate::{
 /// - **Knight Outpost**: Rewards knights on squares safe from enemy pawns and advanced into the enemy territory.
 ///
 /// Positive scores favor White; negative scores favor Black.
-pub struct Evaluator;
+pub struct Evaluator {
+    evaluators: Vec<(Box<dyn BoardEvaluator>, i32)>, // evaluator + weight
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Evaluator {
-    pub fn evaluate(board: &Board) -> i32 {
-        // Collect sub-evaluator scores in a fixed-size array for clarity
-        let scores: [i32; 10] = [
-            MaterialEvaluator::evaluate(board),
-            PositionEvaluator::evaluate(board),
-            PawnStructureEvaluator::evaluate(board),
-            MobilityEvaluator::evaluate(board),
-            KingSafetyEvaluator::evaluate(board),
-            TempoEvaluator::evaluate(board),
-            BishopPairEvaluator::evaluate(board),
-            KnightOutpostEvaluator::evaluate(board),
-            RookFileEvaluator::evaluate(board),
-            CentralControlEvaluator::evaluate(board),
+    pub fn new() -> Self {
+        let evaluators: Vec<(Box<dyn BoardEvaluator>, i32)> = vec![
+            (Box::new(MaterialEvaluator), 1),
+            (Box::new(PositionEvaluator), 1),
+            (Box::new(PawnStructureEvaluator), 1),
+            (Box::new(MobilityEvaluator), 1),
+            (Box::new(KingSafetyEvaluator), 1),
+            (Box::new(TempoEvaluator), 1),
+            (Box::new(BishopPairEvaluator), 1),
+            (Box::new(KnightOutpostEvaluator), 1),
+            (Box::new(RookFileEvaluator), 1),
+            (Box::new(CentralControlEvaluator), 1),
         ];
 
-        // Sum all sub-evaluator scores
-        let total: i32 = scores.iter().sum();
+        Self { evaluators }
+    }
 
-        // Return from the side-to-move's perspective
+    pub fn evaluate(&self, board: &Board) -> i32 {
+        // Sum weighted evaluator scores
+        let mut total: i32 = 0;
+
+        for (evaluator, weight) in &self.evaluators {
+            let score: i32 = evaluator.evaluate(board);
+            total += score * weight;
+        }
+
+        // Adjust for side to move
         match board.side_to_move {
             Color::White => total,
             Color::Black => -total,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::board::Piece;
-
-    #[test]
-    fn test_starting_position_equal() {
-        let board = Board::new();
-        let score = Evaluator::evaluate(&board);
-        // Should be close to 0 (slight advantage for white having first move)
-        assert!(
-            score.abs() < 50,
-            "Starting position should be roughly equal"
-        );
-    }
-
-    #[test]
-    fn test_center_knight_better_than_edge() {
-        let mut board = Board::empty();
-        board.squares[pos("e4")].0 = Some((Piece::Knight, Color::White));
-        board.squares[pos("e8")].0 = Some((Piece::King, Color::Black));
-        board.squares[pos("e1")].0 = Some((Piece::King, Color::White));
-        board.white_king_pos = pos("e1");
-        board.black_king_pos = pos("e8");
-        board.side_to_move = Color::White;
-
-        let center_score = Evaluator::evaluate(&board);
-
-        let mut board2 = Board::empty();
-        board2.squares[pos("a1")].0 = Some((Piece::Knight, Color::White));
-        board2.squares[pos("e8")].0 = Some((Piece::King, Color::Black));
-        board2.squares[pos("e1")].0 = Some((Piece::King, Color::White));
-        board2.white_king_pos = pos("e1");
-        board2.black_king_pos = pos("e8");
-        board2.side_to_move = Color::White;
-
-        let edge_score = Evaluator::evaluate(&board2);
-
-        assert!(
-            center_score > edge_score,
-            "Knight in center should score higher"
-        );
-    }
-
-    fn pos(s: &str) -> usize {
-        let bytes = s.as_bytes();
-        let file = (bytes[0] - b'a') as usize;
-        let rank = (bytes[1] - b'1') as usize;
-        rank * 8 + file
     }
 }

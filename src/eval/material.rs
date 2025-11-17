@@ -1,9 +1,12 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
 
 pub struct MaterialEvaluator;
 
-impl MaterialEvaluator {
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for MaterialEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut white_material: i32 = 0;
         let mut black_material: i32 = 0;
 
@@ -20,7 +23,9 @@ impl MaterialEvaluator {
 
         white_material - black_material
     }
+}
 
+impl MaterialEvaluator {
     fn piece_value(piece: Piece) -> i32 {
         match piece {
             Piece::Pawn => 100,
@@ -68,7 +73,7 @@ mod tests {
     #[test]
     fn test_material_evaluator_initial_board_state() {
         let board: Board = Board::default();
-        let value: i32 = MaterialEvaluator::evaluate(&board);
+        let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
             value, expected_value,
@@ -88,7 +93,7 @@ mod tests {
         // Remove White pieces
         board.squares[0].0 = None; // Rook
 
-        let value: i32 = MaterialEvaluator::evaluate(&board);
+        let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = 420;
 
         assert_eq!(
@@ -113,7 +118,7 @@ mod tests {
         board.squares[62].0 = None; // Knight
         board.squares[55].0 = None; // Pawn
 
-        let value: i32 = MaterialEvaluator::evaluate(&board);
+        let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = -220;
 
         assert_eq!(

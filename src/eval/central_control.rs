@@ -1,30 +1,35 @@
-use crate::board::{Board, Color, MoveGenerator};
+use crate::{
+    board::{Board, Color, MoveGenerator},
+    eval::evaluator::BoardEvaluator,
+};
+
+// Bonus per controlled central square
+const CENTER_BONUS: i32 = 5;
+
+// Central square indices in 0..63 board array
+const CENTRAL_SQUARES: [usize; 4] = [27, 28, 35, 36]; // d4=27, e4=28, d5=35, e5=36
 
 /// Evaluates control of central squares (d4, e4, d5, e5).
 /// Each controlled square adds a small bonus for the controlling side.
 pub struct CentralControlEvaluator;
 
-impl CentralControlEvaluator {
-    // Bonus per controlled central square
-    const CENTER_BONUS: i32 = 5;
-
-    // Central square indices in 0..63 board array
-    const CENTRAL_SQUARES: [usize; 4] = [27, 28, 35, 36]; // d4=27, e4=28, d5=35, e5=36
-
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for CentralControlEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
-        for &sq in &Self::CENTRAL_SQUARES {
+        for &sq in &CENTRAL_SQUARES {
             // Count White influence
             let white_control = Self::count_control(board, sq, Color::White);
             let black_control = Self::count_control(board, sq, Color::Black);
 
-            score += Self::CENTER_BONUS * (white_control as i32 - black_control as i32);
+            score += CENTER_BONUS * (white_control as i32 - black_control as i32);
         }
 
         score
     }
+}
 
+impl CentralControlEvaluator {
     /// Returns the number of pseudo-legal moves that can attack the target square
     fn count_control(board: &Board, target_sq: usize, color: Color) -> u8 {
         let mut moves = Vec::with_capacity(32);

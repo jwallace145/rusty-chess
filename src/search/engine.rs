@@ -8,6 +8,7 @@ use crate::search::{Minimax, SearchHistory, SearchMetrics};
 /// Manages a transposition table for caching board evaluations across searches.
 /// Call `new_game()` to clear the cache between games.
 pub struct ChessEngine {
+    minimax: Minimax,
     tt: TranspositionTable,
     last_search_metrics: Option<SearchMetrics>,
     opening_book: Option<OpeningBook>,
@@ -23,6 +24,7 @@ impl Default for ChessEngine {
 impl ChessEngine {
     pub fn new() -> Self {
         Self {
+            minimax: Minimax::new(),
             tt: TranspositionTable::default(),
             last_search_metrics: None,
             opening_book: None,
@@ -34,6 +36,7 @@ impl ChessEngine {
     pub fn with_opening_book(book_path: &str) -> std::io::Result<Self> {
         let book = OpeningBook::load(book_path)?;
         Ok(Self {
+            minimax: Minimax::new(),
             tt: TranspositionTable::default(),
             last_search_metrics: None,
             opening_book: Some(book),
@@ -71,7 +74,8 @@ impl ChessEngine {
         let mut metrics = SearchMetrics::new();
 
         let result =
-            Minimax::find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
+            self.minimax
+                .find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
 
         self.print_search_stats(&metrics);
 

@@ -1,4 +1,10 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
+
+const OPEN_FILE_BONUS: i32 = 20;
+const SEMI_OPEN_FILE_BONUS: i32 = 10;
 
 /// Evaluates rooks on open or semi-open files.
 /// - **Open file**: no pawns of either color on the file → +20
@@ -7,11 +13,8 @@ use crate::board::{Board, Color, Piece};
 ///   Positive for White, negative for Black.
 pub struct RookFileEvaluator;
 
-impl RookFileEvaluator {
-    const OPEN_FILE_BONUS: i32 = 20;
-    const SEMI_OPEN_FILE_BONUS: i32 = 10;
-
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for RookFileEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         for (sq, square) in board.squares.iter().enumerate() {
@@ -24,7 +27,9 @@ impl RookFileEvaluator {
 
         score
     }
+}
 
+impl RookFileEvaluator {
     fn rook_file_score(board: &Board, sq: usize, color: Color) -> i32 {
         let file = sq % 8;
         let mut has_friendly_pawn = false;
@@ -44,9 +49,9 @@ impl RookFileEvaluator {
         }
 
         let bonus = if !has_friendly_pawn && !has_enemy_pawn {
-            Self::OPEN_FILE_BONUS
+            OPEN_FILE_BONUS
         } else if !has_friendly_pawn {
-            Self::SEMI_OPEN_FILE_BONUS
+            SEMI_OPEN_FILE_BONUS
         } else {
             0
         };

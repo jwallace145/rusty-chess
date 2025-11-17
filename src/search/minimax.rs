@@ -35,11 +35,27 @@ impl SearchMetrics {
 ///
 /// # References
 /// - [Wikipedia: Minimax](https://en.wikipedia.org/wiki/Minimax)
-pub struct Minimax;
+pub struct Minimax {
+    evaluator: Evaluator,
+}
+
+impl Default for Minimax {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Minimax {
+    /// Creates a new Minimax instance with a fresh evaluator
+    pub fn new() -> Self {
+        Self {
+            evaluator: Evaluator::new(),
+        }
+    }
+
     /// Find the best move using minimax with alpha-beta pruning
     pub fn find_best_move(
+        &self,
         board: &Board,
         depth: u8,
         history: &mut SearchHistory,
@@ -76,7 +92,7 @@ impl Minimax {
             // Push position before recursing
             history.push(board_copy.zobrist_hash);
 
-            let score = -Self::alpha_beta(
+            let score = -self.alpha_beta(
                 &board_copy,
                 depth - 1,
                 i32::MIN + 1,
@@ -104,6 +120,7 @@ impl Minimax {
 
     #[allow(clippy::too_many_arguments)]
     fn alpha_beta(
+        &self,
         board: &Board,
         depth: u8,
         mut alpha: i32,
@@ -150,7 +167,7 @@ impl Minimax {
 
         // Leaf node - evaluate position
         if depth == 0 {
-            let score = Evaluator::evaluate(board);
+            let score = self.evaluator.evaluate(board);
             tt.store(board.zobrist_hash, depth, score, None);
             return score;
         }
@@ -169,7 +186,7 @@ impl Minimax {
             // Push position before recursing
             history.push(board_copy.zobrist_hash);
 
-            let score = -Self::alpha_beta(
+            let score = -self.alpha_beta(
                 &board_copy,
                 depth - 1,
                 -beta,
@@ -282,10 +299,11 @@ mod tests {
         board.side_to_move = Color::White;
 
         // Create a TT and metrics for the test
+        let minimax = Minimax::new();
         let mut tt = TranspositionTable::new_with_entries(1024);
         let mut metrics = SearchMetrics::new();
         let mut history = SearchHistory::new();
-        let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
+        let best_move = minimax.find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();
@@ -319,10 +337,11 @@ mod tests {
             move_type: ChessMoveType::Normal,
         });
 
+        let minimax = Minimax::new();
         let mut tt = TranspositionTable::new_with_entries(1024);
         let mut metrics = SearchMetrics::new();
         let mut history = SearchHistory::new();
-        let best_move = Minimax::find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
+        let best_move = minimax.find_best_move(&board, 3, &mut history, &mut tt, &mut metrics);
         assert!(best_move.is_some());
 
         let chess_move = best_move.unwrap();

@@ -1,9 +1,12 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
 
 pub struct PawnStructureEvaluator;
 
-impl PawnStructureEvaluator {
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for PawnStructureEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         // Build pawn maps for fast lookups
@@ -21,7 +24,9 @@ impl PawnStructureEvaluator {
 
         score
     }
+}
 
+impl PawnStructureEvaluator {
     fn evaluate_pawn(
         position: usize,
         color: Color,

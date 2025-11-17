@@ -1,10 +1,13 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
 
 pub struct PositionEvaluator;
 
-impl PositionEvaluator {
+impl BoardEvaluator for PositionEvaluator {
     // Evaluate the positional score of a chess board state
-    pub fn evaluate(board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut white_position: i32 = 0;
         let mut black_position: i32 = 0;
 
@@ -23,7 +26,9 @@ impl PositionEvaluator {
 
         white_position - black_position
     }
+}
 
+impl PositionEvaluator {
     fn piece_value(piece: Piece, position: usize, color: Color, game_phase: i32) -> i32 {
         // For Black pieces, flip the board vertically to normalize Piece-Square tables
         let normalized_position: usize = match color {
@@ -131,7 +136,7 @@ mod tests {
     #[test]
     fn test_position_evaluator_evaluate_initial_position() {
         let board: Board = Board::default();
-        let value: i32 = PositionEvaluator::evaluate(&board);
+        let value: i32 = PositionEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
             value, expected_value,

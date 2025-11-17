@@ -1,15 +1,20 @@
-use crate::board::{Board, Color, Piece};
+use crate::{
+    board::{Board, Color, Piece},
+    eval::evaluator::BoardEvaluator,
+};
 
 pub struct KingSafetyEvaluator;
 
-impl KingSafetyEvaluator {
-    pub fn evaluate(board: &Board) -> i32 {
+impl BoardEvaluator for KingSafetyEvaluator {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_king_safety = Self::king_safety(board, Color::White);
         let black_king_safety = Self::king_safety(board, Color::Black);
 
         white_king_safety - black_king_safety
     }
+}
 
+impl KingSafetyEvaluator {
     fn king_safety(board: &Board, color: Color) -> i32 {
         let king_pos: usize = board.king_pos(color);
 
