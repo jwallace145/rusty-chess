@@ -11,5 +11,5 @@ chrono = "0.4"
 bincode = "1.3"
 
 [[bin]]
-name = "profile"
-path = "benches/profile.rs"
+name = "find-magic-numbers"
+path = "src/bin/find_magic_numbers.rs"
