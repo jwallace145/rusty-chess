@@ -6,7 +6,7 @@ use std::io::Write;
 const ROOK_DIRS: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 const BISHOP_DIRS: [(i32, i32); 4] = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
 
-/// Convert (rank, file) to square index
+/// Convert (rank, file) to square index (A1=0, H8=63)
 fn square_index(rank: i32, file: i32) -> Option<usize> {
     if (0..8).contains(&rank) && (0..8).contains(&file) {
         Some((rank * 8 + file) as usize)
@@ -15,7 +15,7 @@ fn square_index(rank: i32, file: i32) -> Option<usize> {
     }
 }
 
-/// Generate mask for sliding piece (rook or bishop)
+/// Generate mask for sliding piece
 fn sliding_mask(square: usize, directions: &[(i32, i32)], exclude_edges: bool) -> u64 {
     let rank = (square / 8) as i32;
     let file = (square % 8) as i32;
@@ -24,21 +24,48 @@ fn sliding_mask(square: usize, directions: &[(i32, i32)], exclude_edges: bool) -
     for (dr, df) in directions.iter() {
         let mut r = rank + dr;
         let mut f = file + df;
+
         while let Some(sq) = square_index(r, f) {
-            // Include this square unless it's an edge and we're excluding edges
+            // exclude outer edges for occupancy mask
             let is_edge = r == 0 || r == 7 || f == 0 || f == 7;
-            if !is_edge || !exclude_edges {
-                mask |= 1u64 << sq;
-            }
-            // Stop if we hit an edge
-            if is_edge {
+            if exclude_edges && is_edge {
                 break;
             }
+            mask |= 1u64 << sq;
             r += dr;
             f += df;
         }
     }
+
     mask
+}
+
+/// Generate sliding attacks for a given occupancy
+fn sliding_attack(square: usize, blockers: u64, directions: &[(i32, i32)]) -> u64 {
+    let rank = (square / 8) as i32;
+    let file = (square % 8) as i32;
+    let mut attacks = 0u64;
+
+    for (dr, df) in directions.iter() {
+        let mut r = rank;
+        let mut f = file;
+
+        loop {
+            r += dr;
+            f += df;
+
+            if let Some(sq) = square_index(r, f) {
+                attacks |= 1u64 << sq;
+                if (blockers >> sq) & 1 != 0 {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    attacks
 }
 
 /// Generate all occupancies for given mask
@@ -58,33 +85,6 @@ fn generate_occupancies(mask: u64) -> Vec<u64> {
     }
 
     occupancies
-}
-
-/// Brute-force rook/bishop attack for a given occupancy
-fn sliding_attack(square: usize, blockers: u64, directions: &[(i32, i32)]) -> u64 {
-    let rank = (square / 8) as i32;
-    let file = (square % 8) as i32;
-    let mut attacks = 0u64;
-
-    for (dr, df) in directions.iter() {
-        let mut r = rank;
-        let mut f = file;
-
-        loop {
-            r += dr;
-            f += df;
-            if let Some(sq) = square_index(r, f) {
-                attacks |= 1u64 << sq;
-                if (blockers >> sq) & 1 != 0 {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-
-    attacks
 }
 
 /// Generate a random 64-bit number with sparse bits

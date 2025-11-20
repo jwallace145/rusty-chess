@@ -1,3 +1,4 @@
+pub mod attack_tables;
 pub mod board;
 pub mod eval;
 pub mod game;

@@ -5,6 +5,7 @@ pub mod castling;
 pub mod chess_move;
 pub mod color;
 pub mod move_generator;
+pub mod move_generator2;
 pub mod piece;
 
 pub use board::Board;
