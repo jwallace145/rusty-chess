@@ -1,6 +1,6 @@
 use super::{CastlingRights, Color, Piece};
 use crate::{
-    attack_tables::tables::ATTACK_TABLES,
+    attacks::database::ATTACKS_DB,
     board::{ChessMove, ChessMoveState, move_generator2::MoveGenerator2},
 };
 
@@ -156,19 +156,18 @@ impl Board2 {
     }
 
     // Attack generation
-
     #[inline]
     pub fn attacks_from(&self, piece: Piece, sq: u8, color: Color) -> u64 {
-        let sq = sq as usize;
-        let tables = &*ATTACK_TABLES; // Fast static reference
+        let sq: usize = sq as usize;
+        let db = &*ATTACKS_DB;
 
         match piece {
-            Piece::Pawn => tables.pawn_attacks(sq, color),
-            Piece::Knight => tables.knight_attacks(sq, self.occ_all),
-            Piece::Bishop => tables.bishop_attacks(sq, self.occ_all),
-            Piece::Rook => tables.rook_attacks(sq, self.occ_all),
-            Piece::Queen => tables.queen_attacks(sq, self.occ_all),
-            Piece::King => tables.king_attacks(sq, self.occ_all),
+            Piece::Pawn => db.pawn_attacks(sq, color),
+            Piece::Knight => db.knight_attacks(sq, self.occ_all),
+            Piece::Bishop => db.bishop_attacks(sq, self.occ_all),
+            Piece::Rook => db.rook_attacks(sq, self.occ_all),
+            Piece::Queen => db.queen_attacks(sq, self.occ_all),
+            Piece::King => db.king_attacks(sq, self.occ_all),
         }
     }
 

@@ -3,23 +3,28 @@ use std::sync::Arc;
 
 use crate::board::Color;
 
-use super::attacks::{BLACK_PAWN_ATTACKS, KING_ATTACKS, KNIGHT_ATTACKS, WHITE_PAWN_ATTACKS};
-use super::magic::{
-    BISHOP_MAGICS, BISHOP_MASKS, BISHOP_RELEVANT_BITS, BOARD_SIZE, ROOK_MAGICS, ROOK_MASKS,
-    ROOK_RELEVANT_BITS,
-};
+use super::kings::KING_ATTACKS;
+use super::knights::KNIGHT_ATTACKS;
+use super::magics::{BISHOP_MAGICS, ROOK_MAGICS};
+use super::masks::{BISHOP_MASKS, ROOK_MASKS};
+use super::pawns::{BLACK_PAWN_ATTACKS, WHITE_PAWN_ATTACKS};
+use super::relevant_bits::{BISHOP_RELEVANT_BITS, ROOK_RELEVANT_BITS};
+use std::fs::File;
+use std::io::{BufReader, Read};
 
 // =========
 // CONSTANTS
 // =========
 
-pub const ATTACK_TABLES_BINARY: &str = "attack_tables.bin";
+pub const ATTACKS_DB_BIN: &str = "attack_tables.bin";
 
-// ====================
-// ATTACK TABLES STRUCT
-// ====================
+pub const BOARD_SIZE: usize = 64;
 
-pub struct AttackTables {
+// ================
+// ATTACKS DATABASE
+// ================
+
+pub struct AttacksDB {
     pub rook: Vec<Vec<u64>>,
     pub bishop: Vec<Vec<u64>>,
     pub white_pawn: [u64; 64],
@@ -28,25 +33,18 @@ pub struct AttackTables {
     pub king: [u64; 64],
 }
 
-// =====================================
-// ATTACK TABLES GLOBAL STATIC REFERENCE
-// =====================================
-
-pub static ATTACK_TABLES: Lazy<Arc<AttackTables>> = Lazy::new(|| {
-    let tables =
-        AttackTables::load_from_bin(ATTACK_TABLES_BINARY).expect("Failed to load attack tables!");
+// The AttacksDB global static reference for attack table queries
+pub static ATTACKS_DB: Lazy<Arc<AttacksDB>> = Lazy::new(|| {
+    let tables = AttacksDB::load_from_bin(ATTACKS_DB_BIN).expect("Failed to load AttacksDB bin!");
     Arc::new(tables)
 });
 
-// ============================
-// ATTACK TABLES IMPLEMENTATION
-// ============================
+// ===============================
+// ATTACKS DATABASE IMPLEMENTATION
+// ===============================
 
-impl AttackTables {
+impl AttacksDB {
     pub fn load_from_bin(path: &str) -> std::io::Result<Self> {
-        use std::fs::File;
-        use std::io::{BufReader, Read};
-
         let file: File = File::open(path)?;
         let mut reader: BufReader<File> = BufReader::new(file);
 
@@ -152,8 +150,8 @@ mod tests {
 
     #[test]
     fn test_attack_tables_default_board_rook_a1() {
-        // Load the attack tables
-        let tables = ATTACK_TABLES.clone();
+        // Load the attacks database
+        let tables = ATTACKS_DB.clone();
 
         // Setup default board occupancy (starting position)
         let mut occupancy: u64 = 0xFFFF00000000FFFF;
@@ -183,8 +181,8 @@ mod tests {
 
     #[test]
     fn test_attack_tables_default_board_bishop_c1() {
-        // Load the attack tables
-        let tables = ATTACK_TABLES.clone();
+        // Load the attacks database
+        let tables = ATTACKS_DB.clone();
 
         // Setup default board occupancy (starting position)
         let mut occupancy: u64 = 0xFFFF00000000FFFF;
@@ -214,8 +212,8 @@ mod tests {
 
     #[test]
     fn test_attack_tables_default_board_white_queen_d1() {
-        // Load the attack tables
-        let tables: Arc<AttackTables> = ATTACK_TABLES.clone();
+        // Load the attacks database
+        let tables: Arc<AttacksDB> = ATTACKS_DB.clone();
 
         // Setup default board occupancy (starting position)
         let mut occupancy: u64 = 0xFFFF00000000FFFF;
@@ -243,7 +241,7 @@ mod tests {
     #[test]
     fn test_attack_tables_empty_board_white_rook_a1() {
         // Load the attack tables
-        let tables: Arc<AttackTables> = ATTACK_TABLES.clone();
+        let tables: Arc<AttacksDB> = ATTACKS_DB.clone();
 
         // Setup empty board occupancy
         let mut occupancy: u64 = 0x0000000000000001;
@@ -281,7 +279,7 @@ mod tests {
     #[test]
     fn test_attack_tables_empty_board_white_bishop_c1() {
         // Load the attack tables
-        let tables: Arc<AttackTables> = ATTACK_TABLES.clone();
+        let tables: Arc<AttacksDB> = ATTACKS_DB.clone();
 
         // Setup empty board occupancy
         let mut occupancy: u64 = 0x0000000000000004;
@@ -312,7 +310,7 @@ mod tests {
     #[test]
     fn test_attack_tables_empty_board_white_queen_d1() {
         // Load the attack tables
-        let tables: Arc<AttackTables> = ATTACK_TABLES.clone();
+        let tables: Arc<AttacksDB> = ATTACKS_DB.clone();
 
         // Square D1 is index 3
         let square: usize = 3;
