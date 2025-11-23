@@ -1,9 +1,9 @@
-use rusty_chess::board::Board;
+use rusty_chess::board::Board2;
 use rusty_chess::opening::create_basic_book;
 use rusty_chess::search::ChessEngine;
 
 fn test_opening_sequence(engine: &mut ChessEngine, name: &str, moves: &[&str], depth: u8) -> bool {
-    let mut board = Board::new();
+    let mut board = Board2::new_standard();
     let mut all_matched = true;
 
     println!("\nTesting {}", name);
@@ -206,7 +206,7 @@ fn main() {
     // Test out-of-book position
     println!("\nTesting Out-of-Book Position (Engine uses search)");
     println!("{}", "=".repeat(50));
-    let mut board = Board::new();
+    let mut board = Board2::new_standard();
 
     // Play a sequence that goes beyond the book
     let setup_moves = vec![

@@ -367,6 +367,18 @@ impl MoveGenerator2 {
             }
         }
     }
+
+    pub fn is_checkmate(board: &Board2) -> bool {
+        let mut legal_moves = Vec::with_capacity(128);
+        Self::generate_legal_moves(board, &mut legal_moves);
+        legal_moves.is_empty() && board.in_check(board.side_to_move)
+    }
+
+    pub fn is_stalemate(board: &Board2) -> bool {
+        let mut legal_moves = Vec::with_capacity(128);
+        Self::generate_legal_moves(board, &mut legal_moves);
+        legal_moves.is_empty() && !board.in_check(board.side_to_move)
+    }
 }
 
 #[cfg(test)]

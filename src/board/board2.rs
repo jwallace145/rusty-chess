@@ -560,60 +560,107 @@ impl Board2 {
     pub fn count_pieces(&self, color: Color, piece: Piece) -> u32 {
         self.pieces[color as usize][piece as usize].count_ones()
     }
-}
 
-// Conversion from old Board to Board2
-impl From<&super::board::Board> for Board2 {
-    fn from(board: &super::board::Board) -> Self {
-        use super::castling::Side;
+    /// Parse a UCI move string (e.g., "e2e4") and return the corresponding ChessMove
+    /// if it's a legal move in the current position.
+    pub fn parse_uci(&self, uci: &str) -> Result<ChessMove, String> {
+        if uci.len() < 4 {
+            return Err(format!("Invalid UCI move: {}", uci));
+        }
 
-        let mut board2 = Self::new_empty();
+        let from_str = &uci[0..2];
+        let to_str = &uci[2..4];
 
-        // Convert pieces
-        for sq in 0..64 {
-            if let Some((piece, color)) = board.squares[sq].0 {
-                let piece_idx = piece as usize;
-                let color_idx = color as usize;
-                board2.pieces[color_idx][piece_idx] |= 1u64 << sq;
+        let from = parse_square(from_str)?;
+        let to = parse_square(to_str)?;
 
-                // Update king position
-                if piece == Piece::King {
-                    board2.king_sq[color_idx] = sq as u8;
-                }
+        // Generate legal moves and find matching move
+        let mut legal_moves = Vec::with_capacity(128);
+        self.generate_moves(&mut legal_moves);
+
+        legal_moves
+            .into_iter()
+            .find(|m| m.from == from && m.to == to)
+            .ok_or_else(|| format!("No legal move from {} to {}", from_str, to_str))
+    }
+
+    /// Alias for make_move - for compatibility with old Board API
+    pub fn apply_move(&mut self, chess_move: ChessMove) -> ChessMoveState {
+        self.make_move(chess_move)
+    }
+
+    /// Alias for unmake_move - for compatibility with old Board API
+    pub fn undo_move(&mut self, state: ChessMoveState) {
+        self.unmake_move(state)
+    }
+
+    /// Print the board to the console
+    pub fn print(&self) {
+        // Unicode chess symbols
+        fn unicode_symbol(piece: Piece, color: Color) -> char {
+            match (piece, color) {
+                (Piece::Pawn, Color::White) => '♙',
+                (Piece::Knight, Color::White) => '♘',
+                (Piece::Bishop, Color::White) => '♗',
+                (Piece::Rook, Color::White) => '♖',
+                (Piece::Queen, Color::White) => '♕',
+                (Piece::King, Color::White) => '♔',
+                (Piece::Pawn, Color::Black) => '♟',
+                (Piece::Knight, Color::Black) => '♞',
+                (Piece::Bishop, Color::Black) => '♝',
+                (Piece::Rook, Color::Black) => '♜',
+                (Piece::Queen, Color::Black) => '♛',
+                (Piece::King, Color::Black) => '♚',
             }
         }
 
-        // Update occupancy
-        board2.occ[Color::White as usize] =
-            board2.pieces[Color::White as usize].iter().copied().sum();
-        board2.occ[Color::Black as usize] =
-            board2.pieces[Color::Black as usize].iter().copied().sum();
-        board2.occ_all = board2.occ[Color::White as usize] | board2.occ[Color::Black as usize];
+        // ANSI color codes for board squares
+        const LIGHT_SQUARE: &str = "\x1b[48;5;230m"; // beige
+        const DARK_SQUARE: &str = "\x1b[48;5;94m"; // brown
+        const RESET: &str = "\x1b[0m";
 
-        // Copy game state
-        board2.side_to_move = board.side_to_move;
+        println!("\n  a b c d e f g h");
+        for rank in (0..8).rev() {
+            print!("{} ", rank + 1);
+            for file in 0..8 {
+                let sq = rank * 8 + file;
+                let is_light = (rank + file) % 2 == 1;
+                let bg_color = if is_light { LIGHT_SQUARE } else { DARK_SQUARE };
 
-        // Convert castling rights from individual flags to CastlingRights
-        board2.castling = CastlingRights::empty();
-        if !board.white_king_moved && !board.white_kingside_rook_moved {
-            board2.castling.add(Color::White, Side::KingSide);
+                if let Some((color, piece)) = self.piece_on(sq) {
+                    let symbol = unicode_symbol(piece, color);
+                    print!("{}{} {}", bg_color, symbol, RESET);
+                } else {
+                    print!("{}  {}", bg_color, RESET);
+                }
+            }
+            println!(" {}", rank + 1);
         }
-        if !board.white_king_moved && !board.white_queenside_rook_moved {
-            board2.castling.add(Color::White, Side::QueenSide);
-        }
-        if !board.black_king_moved && !board.black_kingside_rook_moved {
-            board2.castling.add(Color::Black, Side::KingSide);
-        }
-        if !board.black_king_moved && !board.black_queenside_rook_moved {
-            board2.castling.add(Color::Black, Side::QueenSide);
-        }
-
-        board2.en_passant = board.en_passant_target.map(|sq| sq as u8).unwrap_or(64);
-        board2.halfmove_clock = 0; // Board doesn't track halfmove clock
-        board2.hash = board.zobrist_hash;
-
-        board2
+        println!("  a b c d e f g h\n");
     }
+}
+
+fn parse_square(s: &str) -> Result<usize, String> {
+    if s.len() != 2 {
+        return Err(format!("Invalid square: {}", s));
+    }
+
+    let bytes = s.as_bytes();
+    let file = bytes[0];
+    let rank = bytes[1];
+
+    if !(b'a'..=b'h').contains(&file) {
+        return Err(format!("Invalid file: {}", file as char));
+    }
+
+    if !(b'1'..=b'8').contains(&rank) {
+        return Err(format!("Invalid rank: {}", rank as char));
+    }
+
+    let file_idx = (file - b'a') as usize;
+    let rank_idx = (rank - b'1') as usize;
+
+    Ok(rank_idx * 8 + file_idx)
 }
 
 #[cfg(test)]

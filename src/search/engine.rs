@@ -1,5 +1,5 @@
 use super::transposition_table::TranspositionTable;
-use crate::board::{Board, Board2, ChessMove};
+use crate::board::{Board2, ChessMove};
 use crate::opening::OpeningBook;
 use crate::search::{Minimax, SearchHistory, SearchMetrics};
 
@@ -55,11 +55,11 @@ impl ChessEngine {
         self.use_opening_book = enabled && self.opening_book.is_some();
     }
 
-    pub fn find_best_move(&mut self, board: &Board, depth: u8) -> Option<ChessMove> {
+    pub fn find_best_move(&mut self, board: &Board2, depth: u8) -> Option<ChessMove> {
         // Check opening book first if enabled
         if self.use_opening_book
             && let Some(ref book) = self.opening_book
-            && let Some(uci_move) = book.probe(board.zobrist_hash)
+            && let Some(uci_move) = book.probe(board.hash)
         {
             // Try to parse and validate the UCI move
             if let Ok(chess_move) = board.parse_uci(uci_move) {
@@ -69,16 +69,13 @@ impl ChessEngine {
             }
         }
 
-        // Convert Board to Board2 for faster search
-        let board2 = Board2::from(board);
-
         // Fall back to minimax search
         let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
 
         let result =
             self.minimax
-                .find_best_move(&board2, depth, &mut history, &mut self.tt, &mut metrics);
+                .find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
 
         self.print_search_stats(&metrics);
 
