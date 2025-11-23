@@ -1,5 +1,6 @@
-use rusty_chess::board::{Board2, ChessMove, ChessMoveState, Color, MoveGenerator2};
+use rusty_chess::board::{Board2, ChessMove, ChessMoveState, Color};
 use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
+use rusty_chess::movegen::MoveGenerator;
 use rusty_chess::search::{ChessEngine, SearchParams};
 use std::io::{self, Write};
 
@@ -260,7 +261,7 @@ impl AiGame {
 
         // Find the matching legal move
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves
             .into_iter()
             .find(|m| m.from == from && m.to == to)
@@ -288,16 +289,16 @@ impl AiGame {
     }
 
     fn is_checkmate(&self) -> bool {
-        MoveGenerator2::is_checkmate(&self.board)
+        MoveGenerator::is_checkmate(&self.board)
     }
 
     fn is_stalemate(&self) -> bool {
-        MoveGenerator2::is_stalemate(&self.board)
+        MoveGenerator::is_stalemate(&self.board)
     }
 
     fn print_legal_moves(&self) {
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
 
         if legal_moves.is_empty() {
             println!("No legal moves available.");

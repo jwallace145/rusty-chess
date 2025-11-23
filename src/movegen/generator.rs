@@ -1,8 +1,8 @@
-use crate::board::{ChessMove, Color, Piece, board2::Board2, chess_move::ChessMoveType};
+use crate::board::{Board2, ChessMove, Color, Piece, chess_move::ChessMoveType};
 
-pub struct MoveGenerator2;
+pub struct MoveGenerator;
 
-impl MoveGenerator2 {
+impl MoveGenerator {
     pub fn generate_legal_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
         moves.clear();
 
@@ -408,7 +408,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&board, &mut moves);
+        MoveGenerator::generate_legal_moves(&board, &mut moves);
 
         // Pawn on e2 should be able to move to e3 and e4 (2 moves)
         // King on e1 should be able to move to d1, f1, d2, f2 (4 moves) - e2 is blocked by pawn
@@ -438,7 +438,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&board, &mut moves);
+        MoveGenerator::generate_legal_moves(&board, &mut moves);
 
         // White should have no legal moves (checkmated)
         assert_eq!(moves.len(), 0);
@@ -466,7 +466,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&board, &mut moves);
+        MoveGenerator::generate_legal_moves(&board, &mut moves);
 
         // King should not be able to move to e5 (checked by rook)
         let e5_move = moves.iter().find(|m| m.to == 36); // e5 = 36
@@ -504,7 +504,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&board, &mut moves);
+        MoveGenerator::generate_legal_moves(&board, &mut moves);
 
         // The white rook should not be able to move horizontally (only vertically along the pin)
         // It can only move to e3-e7 (capturing the black rook)

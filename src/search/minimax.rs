@@ -1,5 +1,6 @@
-use crate::board::{Board2, ChessMove, MoveGenerator2, Piece};
+use crate::board::{Board2, ChessMove, Piece};
 use crate::eval::Evaluator;
+use crate::movegen::MoveGenerator;
 use crate::search::SearchHistory;
 use crate::transpositions::TranspositionTable;
 use std::time::Instant;
@@ -116,7 +117,7 @@ impl Minimax {
 
         // Preallocate move buffer for reuse across recursive calls
         let mut move_buffer = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(board, &mut move_buffer);
+        MoveGenerator::generate_legal_moves(board, &mut move_buffer);
 
         if move_buffer.is_empty() {
             history.pop(); // Clean up before returning
@@ -191,7 +192,7 @@ impl Minimax {
 
         // Check if there are any legal moves
         let mut move_buffer = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(board, &mut move_buffer);
+        MoveGenerator::generate_legal_moves(board, &mut move_buffer);
 
         if move_buffer.is_empty() {
             history.pop();
@@ -263,7 +264,7 @@ impl Minimax {
 
         // Generate moves
         let mut move_buffer = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(board, &mut move_buffer);
+        MoveGenerator::generate_legal_moves(board, &mut move_buffer);
 
         if move_buffer.is_empty() {
             return (0, None);
@@ -352,7 +353,7 @@ impl Minimax {
         }
 
         // Generate legal moves into the shared buffer
-        MoveGenerator2::generate_legal_moves(board, move_buffer);
+        MoveGenerator::generate_legal_moves(board, move_buffer);
 
         // Check for terminal positions (checkmate or stalemate)
         if move_buffer.is_empty() {
@@ -456,7 +457,7 @@ impl Minimax {
         }
 
         // Generate legal moves into the shared buffer
-        MoveGenerator2::generate_legal_moves(board, move_buffer);
+        MoveGenerator::generate_legal_moves(board, move_buffer);
 
         // Check for terminal positions (checkmate or stalemate)
         if move_buffer.is_empty() {
@@ -630,7 +631,7 @@ mod tests {
 
         // Check if it's checkmate
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&test_board, &mut moves);
+        MoveGenerator::generate_legal_moves(&test_board, &mut moves);
         assert!(
             moves.is_empty() && test_board.in_check(test_board.side_to_move),
             "Should deliver checkmate"
@@ -672,7 +673,7 @@ mod tests {
 
         // Check if it's checkmate
         let mut moves = Vec::new();
-        MoveGenerator2::generate_legal_moves(&test_board, &mut moves);
+        MoveGenerator::generate_legal_moves(&test_board, &mut moves);
         assert!(
             moves.is_empty() && test_board.in_check(test_board.side_to_move),
             "Should deliver checkmate"

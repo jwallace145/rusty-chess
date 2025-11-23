@@ -1,4 +1,5 @@
-use crate::board::{Board2, ChessMove, ChessMoveState, Color, MoveGenerator2, Piece};
+use crate::board::{Board2, ChessMove, ChessMoveState, Color, Piece};
+use crate::movegen::MoveGenerator;
 use std::io::{self, Write};
 
 pub struct Game {
@@ -102,7 +103,7 @@ impl Game {
 
         // Find the matching legal move
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves
             .into_iter()
             .find(|m| m.from == from && m.to == to)
@@ -120,19 +121,19 @@ impl Game {
 
     fn is_checkmate(&self) -> bool {
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves.is_empty() && self.board.in_check(self.board.side_to_move)
     }
 
     fn is_stalemate(&self) -> bool {
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves.is_empty() && !self.board.in_check(self.board.side_to_move)
     }
 
     fn print_legal_moves(&self) {
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
 
         if legal_moves.is_empty() {
             println!("No legal moves available.");

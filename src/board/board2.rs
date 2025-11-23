@@ -1,7 +1,8 @@
 use super::{CastlingRights, Color, Piece};
 use crate::{
     attacks::database::ATTACKS_DB,
-    board::{ChessMove, ChessMoveState, move_generator2::MoveGenerator2},
+    board::{ChessMove, ChessMoveState},
+    movegen::MoveGenerator,
     search::compute_hash_board2,
 };
 
@@ -255,7 +256,7 @@ impl Board2 {
 
     // Move generation
     pub fn generate_moves(&self, moves: &mut Vec<ChessMove>) {
-        MoveGenerator2::generate_legal_moves(self, moves);
+        MoveGenerator::generate_legal_moves(self, moves);
     }
 
     // State operations

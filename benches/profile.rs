@@ -1,9 +1,10 @@
-use rusty_chess::board::{Board2, move_generator2::MoveGenerator2};
+use rusty_chess::board::Board2;
+use rusty_chess::movegen::MoveGenerator;
 use rusty_chess::search::ChessEngine;
 use std::time::Instant;
 
 fn main() {
-    println!("Starting chess engine benchmark with Board2 and MoveGenerator2...");
+    println!("Starting chess engine benchmark with Board2 and MoveGenerator...");
 
     // Move generation microbenchmark
     println!("\n=== Move Generation Microbenchmark (Board2) ===");
@@ -12,18 +13,18 @@ fn main() {
 
     // Warm up
     for _ in 0..1000 {
-        MoveGenerator2::generate_legal_moves(&board, &mut moves_buffer);
+        MoveGenerator::generate_legal_moves(&board, &mut moves_buffer);
     }
 
     // Benchmark legal move generation
     let iterations = 100_000;
     let start = Instant::now();
     for _ in 0..iterations {
-        MoveGenerator2::generate_legal_moves(&board, &mut moves_buffer);
+        MoveGenerator::generate_legal_moves(&board, &mut moves_buffer);
     }
     let legal_duration = start.elapsed();
 
-    MoveGenerator2::generate_legal_moves(&board, &mut moves_buffer);
+    MoveGenerator::generate_legal_moves(&board, &mut moves_buffer);
     let legal_moves_count = moves_buffer.len();
 
     println!("Iterations: {}", iterations);
