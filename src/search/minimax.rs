@@ -1,8 +1,55 @@
-use super::transposition_table::TranspositionTable;
 use crate::board::{Board2, ChessMove, MoveGenerator2, Piece};
 use crate::eval::Evaluator;
 use crate::search::SearchHistory;
+use crate::transpositions::TranspositionTable;
 use std::time::Instant;
+
+/// Parameters for configuring search behavior.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchParams {
+    /// Maximum depth to search (prevents going too deep)
+    pub max_depth: u8,
+    /// Minimum time to search per move in milliseconds (ensures sufficient evaluation)
+    pub min_search_time_ms: u64,
+}
+
+impl SearchParams {
+    pub fn new(max_depth: u8, min_search_time_ms: u64) -> Self {
+        Self {
+            max_depth,
+            min_search_time_ms,
+        }
+    }
+}
+
+impl Default for SearchParams {
+    fn default() -> Self {
+        Self {
+            max_depth: 8,
+            min_search_time_ms: 1000,
+        }
+    }
+}
+
+/// Time constraints for search operations.
+#[derive(Debug, Clone, Copy)]
+struct TimeConstraints<'a> {
+    start_time: &'a Instant,
+    min_time_ms: u64,
+}
+
+impl<'a> TimeConstraints<'a> {
+    fn new(start_time: &'a Instant, min_time_ms: u64) -> Self {
+        Self {
+            start_time,
+            min_time_ms,
+        }
+    }
+
+    fn is_time_exceeded(&self) -> bool {
+        self.start_time.elapsed().as_millis() >= self.min_time_ms as u128
+    }
+}
 
 /// Statistics gathered during a minimax search operation.
 #[derive(Debug, Default, Clone, Copy)]
@@ -116,6 +163,266 @@ impl Minimax {
         history.pop(); // Clean up the initial position
         metrics.search_time = start_time.elapsed();
         Some(best_move)
+    }
+
+    /// Find the best move using iterative deepening with time-based search.
+    ///
+    /// This method performs iterative deepening, starting from depth 1 and incrementally
+    /// increasing until either:
+    /// - The maximum depth is reached AND minimum search time has elapsed
+    /// - The minimum search time has elapsed (even if max depth was reached earlier)
+    ///
+    /// This ensures that:
+    /// - There's always a valid best move if timeout occurs
+    /// - The engine searches for at least the minimum time
+    /// - Search doesn't go beyond the maximum depth unless needed to satisfy min time
+    pub fn find_best_move_iterative(
+        &self,
+        board: &Board2,
+        params: &SearchParams,
+        history: &mut SearchHistory,
+        tt: &mut TranspositionTable,
+        metrics: &mut SearchMetrics,
+    ) -> Option<ChessMove> {
+        let start_time = Instant::now();
+
+        // Initialize history with the current position
+        history.push(board.hash);
+
+        // Check if there are any legal moves
+        let mut move_buffer = Vec::with_capacity(128);
+        MoveGenerator2::generate_legal_moves(board, &mut move_buffer);
+
+        if move_buffer.is_empty() {
+            history.pop();
+            metrics.search_time = start_time.elapsed();
+            return None;
+        }
+
+        let mut best_move: Option<ChessMove> = None;
+        let mut depth = 1;
+
+        // Iterative deepening up to max_depth
+        let time_constraints = TimeConstraints::new(&start_time, params.min_search_time_ms);
+        while depth <= params.max_depth {
+            let (_score, mv) =
+                self.search_depth(board, depth, &time_constraints, history, tt, metrics);
+
+            if let Some(mv) = mv {
+                best_move = Some(mv);
+            }
+
+            // Stop if we've exceeded the minimum time
+            if start_time.elapsed().as_millis() >= params.min_search_time_ms as u128 {
+                break;
+            }
+
+            depth += 1;
+        }
+
+        // Ensure minimum search time is satisfied
+        // Continue searching at deeper depths if we haven't used enough time
+        while start_time.elapsed().as_millis() < params.min_search_time_ms as u128 {
+            depth += 1;
+            let (_score, mv) =
+                self.search_depth(board, depth, &time_constraints, history, tt, metrics);
+
+            if let Some(mv) = mv {
+                best_move = Some(mv);
+            }
+
+            // If search completed very quickly, avoid infinite loop
+            // This can happen in endgames with few pieces
+            if mv.is_none() {
+                break;
+            }
+        }
+
+        history.pop();
+        metrics.search_time = start_time.elapsed();
+
+        best_move
+    }
+
+    /// Performs a depth-limited search with time checking.
+    ///
+    /// Returns (score, best_move). If time limit is exceeded, returns (0, None).
+    fn search_depth(
+        &self,
+        board: &Board2,
+        depth: u8,
+        time_constraints: &TimeConstraints,
+        history: &mut SearchHistory,
+        tt: &mut TranspositionTable,
+        metrics: &mut SearchMetrics,
+    ) -> (i32, Option<ChessMove>) {
+        // Stop if time limit is exceeded
+        if time_constraints.is_time_exceeded() {
+            return (0, None);
+        }
+
+        // Generate moves
+        let mut move_buffer = Vec::with_capacity(128);
+        MoveGenerator2::generate_legal_moves(board, &mut move_buffer);
+
+        if move_buffer.is_empty() {
+            return (0, None);
+        }
+
+        // Order moves for better alpha-beta performance
+        Self::order_moves(board, &mut move_buffer, tt);
+
+        // Copy moves to avoid them being overwritten during recursive calls
+        let moves: Vec<ChessMove> = move_buffer.to_vec();
+        let mut best_score = i32::MIN;
+        let mut best_move = moves[0];
+
+        for chess_move in &moves {
+            let mut board_copy = *board;
+            board_copy.make_move(*chess_move);
+
+            // Push position before recursing
+            history.push(board_copy.hash);
+
+            let score = -self.alpha_beta_with_time(
+                &board_copy,
+                depth - 1,
+                i32::MIN + 1,
+                i32::MAX,
+                history,
+                tt,
+                metrics,
+                depth,
+                &mut move_buffer,
+                time_constraints,
+            );
+
+            // Pop position after returning
+            history.pop();
+
+            if score > best_score {
+                best_score = score;
+                best_move = *chess_move;
+            }
+
+            // Check time limit during move iteration
+            if time_constraints.is_time_exceeded() {
+                break;
+            }
+        }
+
+        (best_score, Some(best_move))
+    }
+
+    /// Alpha-beta search with time checking for iterative deepening.
+    #[allow(clippy::too_many_arguments)]
+    fn alpha_beta_with_time(
+        &self,
+        board: &Board2,
+        depth: u8,
+        mut alpha: i32,
+        beta: i32,
+        history: &mut SearchHistory,
+        tt: &mut TranspositionTable,
+        metrics: &mut SearchMetrics,
+        original_depth: u8,
+        move_buffer: &mut Vec<ChessMove>,
+        time_constraints: &TimeConstraints,
+    ) -> i32 {
+        // Check time limit at each node
+        if time_constraints.is_time_exceeded() {
+            return 0; // Time exceeded, return neutral score
+        }
+
+        // Track nodes explored and max depth
+        metrics.nodes_explored += 1;
+        let current_depth = original_depth - depth;
+        if current_depth > metrics.max_depth_reached {
+            metrics.max_depth_reached = current_depth;
+        }
+
+        // Check for repetition FIRST - this prevents infinite check loops
+        if history.is_repetition(board.hash) {
+            return 0; // Repetition is a draw
+        }
+
+        // Probe transposition table - use board.hash directly!
+        if let Some(entry) = tt.probe(board.hash, depth) {
+            return entry.score;
+        }
+
+        // Generate legal moves into the shared buffer
+        MoveGenerator2::generate_legal_moves(board, move_buffer);
+
+        // Check for terminal positions (checkmate or stalemate)
+        if move_buffer.is_empty() {
+            let score = if board.in_check(board.side_to_move) {
+                // Losing position - adjust score by depth to prefer faster checkmates
+                -100_000 - (depth as i32)
+            } else {
+                // Stalemate - return draw score
+                0
+            };
+            // Store terminal position in TT
+            tt.store(board.hash, depth, score, None);
+            return score;
+        }
+
+        // Leaf node - evaluate position
+        if depth == 0 {
+            let score = self.evaluator.evaluate(board);
+            tt.store(board.hash, depth, score, None);
+            return score;
+        }
+
+        // Order moves for better pruning efficiency
+        Self::order_moves(board, move_buffer, tt);
+
+        // Copy moves to avoid them being overwritten during recursive calls
+        let moves: Vec<ChessMove> = move_buffer.to_vec();
+        let mut best_move = None;
+
+        for chess_move in moves {
+            let mut board_copy = *board;
+            board_copy.make_move(chess_move);
+
+            // Push position before recursing
+            history.push(board_copy.hash);
+
+            let score = -self.alpha_beta_with_time(
+                &board_copy,
+                depth - 1,
+                -beta,
+                -alpha,
+                history,
+                tt,
+                metrics,
+                original_depth,
+                move_buffer,
+                time_constraints,
+            );
+
+            // Pop position after returning
+            history.pop();
+
+            // Beta cutoff - opponent won't allow this position
+            if score >= beta {
+                metrics.beta_cutoffs += 1;
+                tt.store(board.hash, depth, beta, Some(chess_move));
+                return beta;
+            }
+
+            // Update alpha if we found a better move
+            if score > alpha {
+                alpha = score;
+                best_move = Some(chess_move);
+            }
+        }
+
+        // Store the result in transposition table
+        tt.store(board.hash, depth, alpha, best_move);
+
+        alpha
     }
 
     #[allow(clippy::too_many_arguments)]

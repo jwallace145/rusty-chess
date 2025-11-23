@@ -1,6 +1,6 @@
 use rusty_chess::board::{Board2, ChessMove, ChessMoveState, Color, MoveGenerator2};
 use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
-use rusty_chess::search::ChessEngine;
+use rusty_chess::search::{ChessEngine, SearchParams};
 use std::io::{self, Write};
 
 enum PlayerAction {
@@ -13,7 +13,7 @@ struct AiGame {
     board: Board2,
     move_history: Vec<ChessMoveState>,
     player_color: Color,
-    ai_depth: u8,
+    search_params: SearchParams,
     engine: ChessEngine,
     game_recorder: GameRecorder,
     move_counter: u16,
@@ -21,11 +21,19 @@ struct AiGame {
 
 impl AiGame {
     fn new(player_color: Color, ai_depth: u8) -> Self {
+        // Create search parameters with time based on depth
+        // Higher depths get more time: depth * 1000ms
+        let min_search_time_ms = (ai_depth as u64) * 3000;
+        let search_params = SearchParams {
+            max_depth: ai_depth,
+            min_search_time_ms,
+        };
+
         Self {
             board: Board2::new_standard(),
             move_history: Vec::new(),
             player_color,
-            ai_depth,
+            search_params,
             engine: ChessEngine::with_opening_book("./opening_book.bin")
                 .expect("Failed to load opening book"),
             game_recorder: GameRecorder::new(player_color, ai_depth),
@@ -142,11 +150,19 @@ impl AiGame {
     }
 
     fn handle_ai_turn(&mut self) {
-        println!("{:?} to move (AI): Thinking...", self.board.side_to_move);
+        println!(
+            "{:?} to move (AI): Thinking (max depth: {}, min time: {}ms)...",
+            self.board.side_to_move,
+            self.search_params.max_depth,
+            self.search_params.min_search_time_ms
+        );
 
         let ai_color = self.board.side_to_move;
 
-        match self.engine.find_best_move(&self.board, self.ai_depth) {
+        match self
+            .engine
+            .find_best_move_iterative(&self.board, &self.search_params)
+        {
             Some(best_move) => {
                 let from_notation = square_to_notation(best_move.from);
                 let to_notation = square_to_notation(best_move.to);

@@ -150,48 +150,6 @@ impl ZobristTable {
     }
 }
 
-/// Compute hash from scratch for a board position.
-/// Use this only for initialization or validation.
-/// For move updates, use incremental XOR operations.
-pub fn compute_hash(board: &crate::board::Board) -> u64 {
-    let table = ZobristTable::get();
-    let mut hash = 0u64;
-
-    // Hash all pieces
-    for (square, sq) in board.squares.iter().enumerate() {
-        if let Some((piece, color)) = sq.0 {
-            hash ^= table.piece(piece, color, square);
-        }
-    }
-
-    // Hash castling rights
-    if board.can_castle_white_kingside() {
-        hash ^= table.castling(CastlingRight::WhiteKingside);
-    }
-    if board.can_castle_white_queenside() {
-        hash ^= table.castling(CastlingRight::WhiteQueenside);
-    }
-    if board.can_castle_black_kingside() {
-        hash ^= table.castling(CastlingRight::BlackKingside);
-    }
-    if board.can_castle_black_queenside() {
-        hash ^= table.castling(CastlingRight::BlackQueenside);
-    }
-
-    // Hash side to move
-    if board.side_to_move == Color::Black {
-        hash ^= table.side_to_move();
-    }
-
-    // Hash en passant
-    if let Some(ep_square) = board.en_passant_target {
-        let file = ep_square % 8;
-        hash ^= table.en_passant(file);
-    }
-
-    hash
-}
-
 /// Compute hash from scratch for a Board2 position.
 /// Use this only for initialization or validation.
 /// For move updates, use incremental XOR operations.
@@ -251,8 +209,6 @@ pub fn compute_hash_board2(board: &crate::board::Board2) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::chess_move::ChessMoveType;
-    use crate::board::{Board, ChessMove};
 
     #[test]
     fn test_zobrist_table_initialization() {
@@ -315,91 +271,5 @@ mod tests {
             table.castling[0], table.castling[1],
             "Different castling rights should have different hashes"
         );
-    }
-
-    #[test]
-    fn test_zobrist_hash_equality() {
-        let mut board1 = Board::new();
-
-        // e2 -> e3
-        board1.apply_move(ChessMove {
-            from: pos("e2"),
-            to: pos("e3"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // e7 -> e6
-        board1.apply_move(ChessMove {
-            from: pos("e7"),
-            to: pos("e6"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // e3 -> e4
-        board1.apply_move(ChessMove {
-            from: pos("e3"),
-            to: pos("e4"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // e6 -> e5
-        board1.apply_move(ChessMove {
-            from: pos("e6"),
-            to: pos("e5"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // Nf3 - clear any en passant state
-        board1.apply_move(ChessMove {
-            from: pos("g1"),
-            to: pos("f3"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        let mut board2 = Board::new();
-
-        // e2 -> e4 (sets en passant target)
-        board2.apply_move(ChessMove {
-            from: pos("e2"),
-            to: pos("e4"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // e7 -> e5 (sets en passant target)
-        board2.apply_move(ChessMove {
-            from: pos("e7"),
-            to: pos("e5"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        // Nf3 - clear the en passant state
-        board2.apply_move(ChessMove {
-            from: pos("g1"),
-            to: pos("f3"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-
-        let zobrist_hash_board1 = compute_hash(&board1);
-        let zobrist_hash_board2 = compute_hash(&board2);
-
-        assert_eq!(
-            zobrist_hash_board1, zobrist_hash_board2,
-            "Zobrist hashes should be equivalent for the same position reached via different move orders"
-        )
-    }
-
-    fn pos(s: &str) -> usize {
-        let bytes = s.as_bytes();
-        let file = (bytes[0] - b'a') as usize;
-        let rank = (bytes[1] - b'1') as usize;
-        rank * 8 + file
     }
 }

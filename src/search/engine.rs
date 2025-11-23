@@ -1,7 +1,7 @@
-use super::transposition_table::TranspositionTable;
 use crate::board::{Board2, ChessMove};
 use crate::opening::OpeningBook;
-use crate::search::{Minimax, SearchHistory, SearchMetrics};
+use crate::search::{Minimax, SearchHistory, SearchMetrics, SearchParams};
+use crate::transpositions::TranspositionTable;
 
 /// Chess move search engine using minimax with alpha-beta pruning.
 ///
@@ -76,6 +76,57 @@ impl ChessEngine {
         let result =
             self.minimax
                 .find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
+
+        self.print_search_stats(&metrics);
+
+        // Store metrics for later retrieval
+        self.last_search_metrics = Some(metrics);
+
+        result
+    }
+
+    /// Find the best move using iterative deepening with time-based search.
+    ///
+    /// This method uses iterative deepening, starting from depth 1 and incrementally
+    /// increasing until either:
+    /// - The maximum depth is reached AND minimum search time has elapsed
+    /// - The minimum search time has elapsed (even if max depth was reached earlier)
+    ///
+    /// # Arguments
+    /// * `board` - The current board position
+    /// * `params` - Search parameters (max depth and minimum search time)
+    ///
+    /// # Returns
+    /// The best move found, or None if no legal moves exist
+    pub fn find_best_move_iterative(
+        &mut self,
+        board: &Board2,
+        params: &SearchParams,
+    ) -> Option<ChessMove> {
+        // Check opening book first if enabled
+        if self.use_opening_book
+            && let Some(ref book) = self.opening_book
+            && let Some(uci_move) = book.probe(board.hash)
+        {
+            // Try to parse and validate the UCI move
+            if let Ok(chess_move) = board.parse_uci(uci_move) {
+                return Some(chess_move);
+            } else {
+                eprintln!("Warning: Opening book returned invalid move: {}", uci_move);
+            }
+        }
+
+        // Fall back to iterative deepening search
+        let mut history = SearchHistory::new();
+        let mut metrics = SearchMetrics::new();
+
+        let result = self.minimax.find_best_move_iterative(
+            board,
+            params,
+            &mut history,
+            &mut self.tt,
+            &mut metrics,
+        );
 
         self.print_search_stats(&metrics);
 

@@ -5,3 +5,4 @@ pub mod game;
 pub mod metrics;
 pub mod opening;
 pub mod search;
+pub mod transpositions;

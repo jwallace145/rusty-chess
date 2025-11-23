@@ -7,11 +7,11 @@ use crate::{
 
 #[derive(Copy, Clone)]
 pub struct Board2 {
-    // Pieces (represented as 64-bit bitboards)
+    // Pieces (represented as 64-bit Bitboards)
     // One for each type of piece and color (12 total)
     pub pieces: [[u64; 6]; 2], // [color][piece]
 
-    // Occupancy (represented as 64-bit bitboards)
+    // Occupancy (represented as 64-bit Bitboards)
     pub occ: [u64; 2], // [color]
     pub occ_all: u64,  // Occupancy regardless of color
 
@@ -21,7 +21,7 @@ pub struct Board2 {
     pub en_passant: u8, // 0-63 or 64 if none
     pub halfmove_clock: u8,
 
-    // Kings (represented as 64-bit bitboards)
+    // King Positions (represented as 2 8-bit square indexes)
     // One for each color (2 total)
     pub king_sq: [u8; 2],
 

@@ -48,7 +48,7 @@ path = "src/bin/test_opening_book.rs"
 name = "test_engine_with_book"
 path = "src/bin/test_engine_with_book.rs"
 
-[[benches]]
+[[bench]]
 name = "profile"
 path = "benches/profile.rs"
 harness = false
