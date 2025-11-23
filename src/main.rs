@@ -24,7 +24,7 @@ impl AiGame {
     fn new(player_color: Color, ai_depth: u8) -> Self {
         // Create search parameters with time based on depth
         // Higher depths get more time: depth * 1000ms
-        let min_search_time_ms = (ai_depth as u64) * 3000;
+        let min_search_time_ms = (ai_depth as u64) * 2000;
         let search_params = SearchParams {
             max_depth: ai_depth,
             min_search_time_ms,

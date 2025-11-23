@@ -47,8 +47,8 @@ impl MoveGenerator {
         let them = board.occupancy(color.opponent());
 
         let (forward, start_rank, promo_rank): (i8, u8, u8) = match color {
-            Color::White => (8, 1, 6),
-            Color::Black => (-8, 6, 1),
+            Color::White => (8, 1, 7),  // Promote on 8th rank (rank 7, 0-indexed)
+            Color::Black => (-8, 6, 0), // Promote on 1st rank (rank 0, 0-indexed)
         };
 
         // Iterate over all pawns
