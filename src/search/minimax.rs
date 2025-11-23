@@ -85,9 +85,10 @@ impl Minimax {
         let mut best_move = moves[0];
         let mut best_score = i32::MIN;
 
-        for chess_move in moves {
+        for chess_move in &moves {
             let mut board_copy = *board;
-            board_copy.make_move(chess_move);
+            board_copy.make_move(*chess_move);
+            board_copy.recompute_hash(); // WORKAROUND: Board2 doesn't update hash in make_move
 
             // Push position before recursing
             history.push(board_copy.hash);
@@ -109,7 +110,7 @@ impl Minimax {
 
             if score > best_score {
                 best_score = score;
-                best_move = chess_move;
+                best_move = *chess_move;
             }
         }
 
@@ -182,6 +183,7 @@ impl Minimax {
         for chess_move in moves {
             let mut board_copy = *board;
             board_copy.make_move(chess_move);
+            board_copy.recompute_hash(); // WORKAROUND: Board2 doesn't update hash in make_move
 
             // Push position before recursing
             history.push(board_copy.hash);
@@ -288,8 +290,7 @@ mod tests {
     use crate::board::chess_move::ChessMoveType;
     use crate::board::{Color, Piece};
 
-    // #[test]
-    #[allow(dead_code)]
+    #[test]
     fn test_finds_checkmate_in_one() {
         let mut board = Board2::new_empty();
 
@@ -306,6 +307,9 @@ mod tests {
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
         board.side_to_move = Color::White;
+
+        // CRITICAL: Compute the zobrist hash for the position
+        board.hash = crate::search::compute_hash_board2(&board);
 
         // Create a TT and metrics for the test
         let minimax = Minimax::new();
@@ -328,8 +332,7 @@ mod tests {
         );
     }
 
-    // #[test]
-    #[allow(dead_code)]
+    #[test]
     fn test_finds_checkmate_fools_game() {
         let mut board = Board2::new_standard();
         board.make_move(ChessMove {

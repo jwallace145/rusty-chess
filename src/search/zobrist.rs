@@ -192,6 +192,62 @@ pub fn compute_hash(board: &crate::board::Board) -> u64 {
     hash
 }
 
+/// Compute hash from scratch for a Board2 position.
+/// Use this only for initialization or validation.
+/// For move updates, use incremental XOR operations.
+pub fn compute_hash_board2(board: &crate::board::Board2) -> u64 {
+    use crate::board::{Color, Piece};
+    let table = ZobristTable::get();
+    let mut hash = 0u64;
+
+    // Hash all pieces
+    for color in [Color::White, Color::Black] {
+        for piece in [
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
+            let mut bb = board.pieces[color as usize][piece as usize];
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                hash ^= table.piece(piece, color, square);
+                bb &= bb - 1; // Clear the lowest set bit
+            }
+        }
+    }
+
+    // Hash castling rights
+    use crate::board::castling::Side;
+    if board.castling.has(Color::White, Side::KingSide) {
+        hash ^= table.castling(CastlingRight::WhiteKingside);
+    }
+    if board.castling.has(Color::White, Side::QueenSide) {
+        hash ^= table.castling(CastlingRight::WhiteQueenside);
+    }
+    if board.castling.has(Color::Black, Side::KingSide) {
+        hash ^= table.castling(CastlingRight::BlackKingside);
+    }
+    if board.castling.has(Color::Black, Side::QueenSide) {
+        hash ^= table.castling(CastlingRight::BlackQueenside);
+    }
+
+    // Hash side to move
+    if board.side_to_move == Color::Black {
+        hash ^= table.side_to_move();
+    }
+
+    // Hash en passant
+    if board.en_passant < 64 {
+        let file = (board.en_passant % 8) as usize;
+        hash ^= table.en_passant(file);
+    }
+
+    hash
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

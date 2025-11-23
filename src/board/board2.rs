@@ -530,6 +530,13 @@ impl Board2 {
         self.hash = state.previous_zobrist_hash & 0xFFFF_FFFF_FFFF_FF00;
     }
 
+    /// Recompute the zobrist hash for the current position.
+    /// This is a workaround for the fact that make_move doesn't update the hash.
+    /// TODO: Fix make_move to update the hash incrementally.
+    pub fn recompute_hash(&mut self) {
+        self.hash = crate::search::compute_hash_board2(self);
+    }
+
     // King helpers
     pub fn king_square(&self, color: Color) -> u8 {
         self.king_sq[color as usize]
