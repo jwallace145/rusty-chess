@@ -1,5 +1,5 @@
 use super::transposition_table::TranspositionTable;
-use crate::board::{Board, ChessMove};
+use crate::board::{Board, Board2, ChessMove};
 use crate::opening::OpeningBook;
 use crate::search::{Minimax, SearchHistory, SearchMetrics};
 
@@ -69,13 +69,16 @@ impl ChessEngine {
             }
         }
 
+        // Convert Board to Board2 for faster search
+        let board2 = Board2::from(board);
+
         // Fall back to minimax search
         let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
 
         let result =
             self.minimax
-                .find_best_move(board, depth, &mut history, &mut self.tt, &mut metrics);
+                .find_best_move(&board2, depth, &mut history, &mut self.tt, &mut metrics);
 
         self.print_search_stats(&metrics);
 

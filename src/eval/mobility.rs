@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color, MoveGenerator},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -8,7 +8,7 @@ const MOBILITY_WEIGHT: i32 = 6;
 pub struct MobilityEvaluator;
 
 impl BoardEvaluator for MobilityEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let white_mobility: i32 = Self::count_mobility(board, Color::White);
         let black_mobility: i32 = Self::count_mobility(board, Color::Black);
 
@@ -18,19 +18,33 @@ impl BoardEvaluator for MobilityEvaluator {
 
 impl MobilityEvaluator {
     /// Count total pseudo-legal moves for all pieces
-    fn count_mobility(board: &Board, color: Color) -> i32 {
-        let mut moves = Vec::with_capacity(64);
-
+    fn count_mobility(board: &Board2, color: Color) -> i32 {
         let mut total = 0;
-        for (sq, square) in board.squares.iter().enumerate() {
-            if let Some((piece, piece_color)) = square.0
-                && piece_color == color
-            {
-                moves.clear();
-                MoveGenerator::generate_piece_moves(board, sq, piece, color, &mut moves);
+        let enemy_or_empty = !board.occupancy(color);
 
-                // Count total moves, not unique targets
-                total += moves.len() as i32;
+        // Iterate through all piece types for the given color
+        for piece_idx in 0..6 {
+            let piece = match piece_idx {
+                0 => Piece::Pawn,
+                1 => Piece::Knight,
+                2 => Piece::Bishop,
+                3 => Piece::Rook,
+                4 => Piece::Queen,
+                _ => Piece::King,
+            };
+
+            let mut piece_bb = board.pieces[color as usize][piece_idx];
+            while piece_bb != 0 {
+                let sq = piece_bb.trailing_zeros() as u8;
+
+                // Get attack bitboard for this piece
+                let attacks = board.attacks_from(piece, sq, color);
+
+                // Count moves to empty squares or captures
+                let moves = attacks & enemy_or_empty;
+                total += moves.count_ones() as i32;
+
+                piece_bb &= piece_bb - 1; // Clear the least significant bit
             }
         }
 
@@ -41,11 +55,11 @@ impl MobilityEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::{Board, Piece};
+    use crate::board::Piece;
 
     #[test]
     fn test_starting_position_mobility() {
-        let board = Board::new();
+        let board = Board2::new_standard();
         let score = MobilityEvaluator.evaluate(&board);
 
         // At the starting position, both sides have equal mobility
@@ -56,17 +70,21 @@ mod tests {
 
     #[test]
     fn test_white_advantage_mobility() {
-        let mut board = Board::empty();
+        let mut board = Board2::new_empty();
 
         // Place white pieces with more mobility
-        board.squares[27].0 = Some((Piece::Queen, Color::White)); // d4 - central queen
-        board.squares[4].0 = Some((Piece::King, Color::White)); // e1
+        board.pieces[Color::White as usize][Piece::Queen as usize] = 1u64 << 27; // d4
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
 
         // Place black pieces with less mobility
-        board.squares[60].0 = Some((Piece::King, Color::Black)); // e8
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
 
-        board.white_king_pos = 4;
-        board.black_king_pos = 60;
+        // Update occupancy
+        board.occ[Color::White as usize] = (1u64 << 27) | (1u64 << 4);
+        board.occ[Color::Black as usize] = 1u64 << 60;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
 
         let score = MobilityEvaluator.evaluate(&board);
@@ -81,17 +99,21 @@ mod tests {
 
     #[test]
     fn test_black_advantage_mobility() {
-        let mut board = Board::empty();
+        let mut board = Board2::new_empty();
 
         // Place black pieces with more mobility
-        board.squares[27].0 = Some((Piece::Queen, Color::Black)); // d4 - central queen
-        board.squares[60].0 = Some((Piece::King, Color::Black)); // e8
+        board.pieces[Color::Black as usize][Piece::Queen as usize] = 1u64 << 27; // d4
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
 
         // Place white pieces with less mobility
-        board.squares[4].0 = Some((Piece::King, Color::White)); // e1
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
 
-        board.white_king_pos = 4;
-        board.black_king_pos = 60;
+        // Update occupancy
+        board.occ[Color::Black as usize] = (1u64 << 27) | (1u64 << 60);
+        board.occ[Color::White as usize] = 1u64 << 4;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
 
         let score = MobilityEvaluator.evaluate(&board);
@@ -105,17 +127,20 @@ mod tests {
 
     #[test]
     fn test_mobility_counts_unique_squares() {
-        let mut board = Board::empty();
+        let mut board = Board2::new_empty();
 
         // Place two white rooks that can move to overlapping squares
-        board.squares[0].0 = Some((Piece::Rook, Color::White)); // a1
-        board.squares[7].0 = Some((Piece::Rook, Color::White)); // h1
-        board.squares[4].0 = Some((Piece::King, Color::White)); // e1
+        board.pieces[Color::White as usize][Piece::Rook as usize] = (1u64 << 0) | (1u64 << 7); // a1 and h1
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
 
-        board.squares[60].0 = Some((Piece::King, Color::Black)); // e8
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
 
-        board.white_king_pos = 4;
-        board.black_king_pos = 60;
+        // Update occupancy
+        board.occ[Color::White as usize] = (1u64 << 0) | (1u64 << 7) | (1u64 << 4);
+        board.occ[Color::Black as usize] = 1u64 << 60;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
 
         let white_mobility = MobilityEvaluator::count_mobility(&board, Color::White);
@@ -133,15 +158,20 @@ mod tests {
 
     #[test]
     fn test_pawn_mobility() {
-        let mut board = Board::empty();
+        let mut board = Board2::new_empty();
 
         // Place a white pawn in starting position
-        board.squares[8].0 = Some((Piece::Pawn, Color::White)); // a2
-        board.squares[4].0 = Some((Piece::King, Color::White)); // e1
-        board.squares[60].0 = Some((Piece::King, Color::Black)); // e8
+        board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 8; // a2
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
 
-        board.white_king_pos = 4;
-        board.black_king_pos = 60;
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
+
+        // Update occupancy
+        board.occ[Color::White as usize] = (1u64 << 8) | (1u64 << 4);
+        board.occ[Color::Black as usize] = 1u64 << 60;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
 
         let white_mobility = MobilityEvaluator::count_mobility(&board, Color::White);
@@ -156,15 +186,20 @@ mod tests {
 
     #[test]
     fn test_knight_mobility() {
-        let mut board = Board::empty();
+        let mut board = Board2::new_empty();
 
         // Place a white knight in the center
-        board.squares[27].0 = Some((Piece::Knight, Color::White)); // d4
-        board.squares[4].0 = Some((Piece::King, Color::White)); // e1
-        board.squares[60].0 = Some((Piece::King, Color::Black)); // e8
+        board.pieces[Color::White as usize][Piece::Knight as usize] = 1u64 << 27; // d4
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
 
-        board.white_king_pos = 4;
-        board.black_king_pos = 60;
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
+
+        // Update occupancy
+        board.occ[Color::White as usize] = (1u64 << 27) | (1u64 << 4);
+        board.occ[Color::Black as usize] = 1u64 << 60;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
 
         let white_mobility = MobilityEvaluator::count_mobility(&board, Color::White);

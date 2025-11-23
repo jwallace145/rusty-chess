@@ -1,12 +1,12 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
 pub struct KingSafetyEvaluator;
 
 impl BoardEvaluator for KingSafetyEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let white_king_safety = Self::king_safety(board, Color::White);
         let black_king_safety = Self::king_safety(board, Color::Black);
 
@@ -15,8 +15,8 @@ impl BoardEvaluator for KingSafetyEvaluator {
 }
 
 impl KingSafetyEvaluator {
-    fn king_safety(board: &Board, color: Color) -> i32 {
-        let king_pos: usize = board.king_pos(color);
+    fn king_safety(board: &Board2, color: Color) -> i32 {
+        let king_pos: u8 = board.king_square(color);
 
         let mut score: i32 = 0;
 
@@ -38,7 +38,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count pawns in the shield squares (3 squares in front of king)
-    fn pawn_shield(board: &Board, color: Color, king_sq: usize) -> i32 {
+    fn pawn_shield(board: &Board2, color: Color, king_sq: u8) -> i32 {
         let file = (king_sq % 8) as i32;
         let rank = (king_sq / 8) as i32;
 
@@ -53,8 +53,9 @@ impl KingSafetyEvaluator {
             let f = file + df;
             let r = rank + forward;
             if (0..8).contains(&f) && (0..8).contains(&r) {
-                let sq = (r * 8 + f) as usize;
-                if let Some((Piece::Pawn, c)) = board.squares[sq].0
+                let sq = (r * 8 + f) as u8;
+                if let Some((c, p)) = board.piece_on(sq)
+                    && p == Piece::Pawn
                     && c == color
                 {
                     count += 1;
@@ -66,7 +67,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Penalty for open or semi-open files next to king
-    fn open_file_penalty(board: &Board, king_sq: usize) -> i32 {
+    fn open_file_penalty(board: &Board2, king_sq: u8) -> i32 {
         let file = king_sq % 8;
 
         let mut penalty = 0;
@@ -76,7 +77,9 @@ impl KingSafetyEvaluator {
 
             for rank in 0..8 {
                 let sq = rank * 8 + adj_file;
-                if let Some((Piece::Pawn, _)) = board.squares[sq].0 {
+                if let Some((_, p)) = board.piece_on(sq)
+                    && p == Piece::Pawn
+                {
                     has_any_pawn = true;
                     break;
                 }
@@ -91,7 +94,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count enemy pieces within 1 king move radius
-    fn enemy_piece_pressure(board: &Board, color: Color, king_sq: usize) -> i32 {
+    fn enemy_piece_pressure(board: &Board2, color: Color, king_sq: u8) -> i32 {
         let enemy = color.opponent();
 
         let king_file = (king_sq % 8) as i32;
@@ -111,9 +114,9 @@ impl KingSafetyEvaluator {
                     continue;
                 }
 
-                let sq = (r * 8 + f) as usize;
+                let sq = (r * 8 + f) as u8;
 
-                if let Some((_, c)) = board.squares[sq].0
+                if let Some((c, _)) = board.piece_on(sq)
                     && c == enemy
                 {
                     threats += 1;

@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -7,19 +7,34 @@ pub struct PositionEvaluator;
 
 impl BoardEvaluator for PositionEvaluator {
     // Evaluate the positional score of a chess board state
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let mut white_position: i32 = 0;
         let mut black_position: i32 = 0;
 
         let game_phase: i32 = Self::game_phase(board);
 
-        for (position, square) in board.squares.iter().enumerate() {
-            if let Some((piece, color)) = square.0 {
-                let bonus: i32 = Self::piece_value(piece, position, color, game_phase);
+        // Iterate through both colors
+        for color in [Color::White, Color::Black] {
+            for piece_idx in 0..6 {
+                let piece = match piece_idx {
+                    0 => Piece::Pawn,
+                    1 => Piece::Knight,
+                    2 => Piece::Bishop,
+                    3 => Piece::Rook,
+                    4 => Piece::Queen,
+                    _ => Piece::King,
+                };
 
-                match color {
-                    Color::White => white_position += bonus,
-                    Color::Black => black_position += bonus,
+                let mut bitboard = board.pieces[color as usize][piece_idx];
+                while bitboard != 0 {
+                    let square = bitboard.trailing_zeros() as usize;
+                    bitboard &= bitboard - 1; // Clear the least significant bit
+
+                    let bonus = Self::piece_value(piece, square, color, game_phase);
+                    match color {
+                        Color::White => white_position += bonus,
+                        Color::Black => black_position += bonus,
+                    }
                 }
             }
         }
@@ -52,28 +67,20 @@ impl PositionEvaluator {
         }
     }
 
-    fn game_phase(board: &Board) -> i32 {
+    fn game_phase(board: &Board2) -> i32 {
         const MAX_PHASE: i32 = 24; // Sum of all piece phase values
 
         let mut phase: i32 = 0;
 
-        for square in &board.squares {
-            if let Some((piece, _color)) = square.0 {
-                phase += Self::piece_phase_value(piece);
-            }
+        // Count pieces for both colors
+        for color in [Color::White, Color::Black] {
+            phase += board.count_pieces(color, Piece::Knight) as i32;
+            phase += board.count_pieces(color, Piece::Bishop) as i32;
+            phase += board.count_pieces(color, Piece::Rook) as i32 * 2;
+            phase += board.count_pieces(color, Piece::Queen) as i32 * 4;
         }
 
         (phase * 256 + MAX_PHASE / 2) / MAX_PHASE
-    }
-
-    fn piece_phase_value(piece: Piece) -> i32 {
-        match piece {
-            Piece::Knight => 1,
-            Piece::Bishop => 1,
-            Piece::Rook => 2,
-            Piece::Queen => 4,
-            Piece::Pawn | Piece::King => 0,
-        }
     }
 }
 
@@ -135,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_evaluate_initial_position() {
-        let board: Board = Board::default();
+        let board: Board2 = Board2::default();
         let value: i32 = PositionEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
@@ -144,36 +151,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_position_evaluator_piece_game_phase_values() {
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::Pawn);
-        let expected_value: i32 = 0;
-        assert_eq!(value, expected_value, "Pawn should have phase value 0");
-
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::Knight);
-        let expected_value: i32 = 1;
-        assert_eq!(value, expected_value, "Knight should have phase value 1");
-
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::Bishop);
-        let expected_value: i32 = 1;
-        assert_eq!(value, expected_value, "Bishop should have phase value 1");
-
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::Rook);
-        let expected_value: i32 = 2;
-        assert_eq!(value, expected_value, "Rook should have phase value 2");
-
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::Queen);
-        let expected_value: i32 = 4;
-        assert_eq!(value, expected_value, "Queen should have phase value 4");
-
-        let value: i32 = PositionEvaluator::piece_phase_value(Piece::King);
-        let expected_value: i32 = 0;
-        assert_eq!(value, expected_value, "King should have phase value 0");
-    }
+    // Test removed - piece_phase_value function was inlined into game_phase()
 
     #[test]
     fn test_position_evaluator_detect_game_phase_early() {
-        let board: Board = Board::default();
+        let board: Board2 = Board2::default();
 
         let value: i32 = PositionEvaluator::game_phase(&board);
         let expected_value: i32 = 256;
@@ -185,13 +167,18 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_detect_game_phase_mid() {
-        let mut board: Board = Board::default();
+        let mut board: Board2 = Board2::default();
 
-        // Remove all Rooks
-        board.squares[0].0 = None;
-        board.squares[7].0 = None;
-        board.squares[63].0 = None;
-        board.squares[56].0 = None;
+        // Remove all Rooks by clearing their bitboards
+        board.pieces[Color::White as usize][Piece::Rook as usize] = 0;
+        board.pieces[Color::Black as usize][Piece::Rook as usize] = 0;
+
+        // Update occupancy
+        board.occ[Color::White as usize] =
+            board.pieces[Color::White as usize].iter().copied().sum();
+        board.occ[Color::Black as usize] =
+            board.pieces[Color::Black as usize].iter().copied().sum();
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
         let value: i32 = PositionEvaluator::game_phase(&board);
         let expected_value: i32 = 171;
@@ -200,15 +187,20 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_detect_game_phase_late() {
-        let mut board: Board = Board::default();
+        let mut board: Board2 = Board2::default();
 
         // Remove all Rooks and Queens
-        board.squares[0].0 = None;
-        board.squares[7].0 = None;
-        board.squares[63].0 = None;
-        board.squares[56].0 = None;
-        board.squares[3].0 = None;
-        board.squares[59].0 = None;
+        board.pieces[Color::White as usize][Piece::Rook as usize] = 0;
+        board.pieces[Color::Black as usize][Piece::Rook as usize] = 0;
+        board.pieces[Color::White as usize][Piece::Queen as usize] = 0;
+        board.pieces[Color::Black as usize][Piece::Queen as usize] = 0;
+
+        // Update occupancy
+        board.occ[Color::White as usize] =
+            board.pieces[Color::White as usize].iter().copied().sum();
+        board.occ[Color::Black as usize] =
+            board.pieces[Color::Black as usize].iter().copied().sum();
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
         let value: i32 = PositionEvaluator::game_phase(&board);
         let expected_value: i32 = 85;

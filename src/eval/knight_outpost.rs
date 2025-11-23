@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -9,15 +9,23 @@ const SUPPORTED_BONUS: i32 = 10; // extra if supported by pawn
 pub struct KnightOutpostEvaluator;
 
 impl BoardEvaluator for KnightOutpostEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let mut score = 0;
 
-        for (sq, square) in board.squares.iter().enumerate() {
-            if let Some((piece, color)) = square.0
-                && piece == Piece::Knight
-            {
-                score += Self::evaluate_knight(board, sq, color);
-            }
+        // Iterate through white knights
+        let mut white_knights = board.pieces[Color::White as usize][Piece::Knight as usize];
+        while white_knights != 0 {
+            let sq = white_knights.trailing_zeros() as usize;
+            score += Self::evaluate_knight(board, sq, Color::White);
+            white_knights &= white_knights - 1;
+        }
+
+        // Iterate through black knights
+        let mut black_knights = board.pieces[Color::Black as usize][Piece::Knight as usize];
+        while black_knights != 0 {
+            let sq = black_knights.trailing_zeros() as usize;
+            score += Self::evaluate_knight(board, sq, Color::Black);
+            black_knights &= black_knights - 1;
         }
 
         score
@@ -25,7 +33,7 @@ impl BoardEvaluator for KnightOutpostEvaluator {
 }
 
 impl KnightOutpostEvaluator {
-    fn evaluate_knight(board: &Board, sq: usize, color: Color) -> i32 {
+    fn evaluate_knight(board: &Board2, sq: usize, color: Color) -> i32 {
         if !Self::is_outpost(board, sq, color) {
             return 0;
         }
@@ -42,7 +50,7 @@ impl KnightOutpostEvaluator {
     }
 
     /// Outpost = cannot be attacked by enemy pawns
-    fn is_outpost(board: &Board, sq: usize, color: Color) -> bool {
+    fn is_outpost(board: &Board2, sq: usize, color: Color) -> bool {
         let file = sq % 8;
         let rank = sq / 8;
 
@@ -65,8 +73,8 @@ impl KnightOutpostEvaluator {
             if !(0..8).contains(&f) || !(0..8).contains(&r) {
                 continue;
             }
-            let idx = (r as usize) * 8 + (f as usize);
-            if let Some((piece, piece_color)) = board.squares[idx].0
+            let idx = ((r as usize) * 8 + (f as usize)) as u8;
+            if let Some((piece_color, piece)) = board.piece_on(idx)
                 && piece == Piece::Pawn
                 && piece_color == enemy
             {
@@ -78,7 +86,7 @@ impl KnightOutpostEvaluator {
     }
 
     /// Checks if a friendly pawn supports this knight
-    fn is_supported_by_pawn(board: &Board, sq: usize, color: Color) -> bool {
+    fn is_supported_by_pawn(board: &Board2, sq: usize, color: Color) -> bool {
         let file = sq % 8;
         let rank = sq / 8;
 
@@ -98,8 +106,8 @@ impl KnightOutpostEvaluator {
             if !(0..8).contains(&f) || !(0..8).contains(&r) {
                 continue;
             }
-            let idx = (r as usize) * 8 + (f as usize);
-            if let Some((piece, piece_color)) = board.squares[idx].0
+            let idx = ((r as usize) * 8 + (f as usize)) as u8;
+            if let Some((piece_color, piece)) = board.piece_on(idx)
                 && piece == Piece::Pawn
                 && piece_color == color
             {

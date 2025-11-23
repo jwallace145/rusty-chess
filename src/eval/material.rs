@@ -1,24 +1,34 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
 pub struct MaterialEvaluator;
 
 impl BoardEvaluator for MaterialEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let mut white_material: i32 = 0;
         let mut black_material: i32 = 0;
 
-        for square in &board.squares {
-            if let Some((piece, color)) = square.0 {
-                let value: i32 = Self::piece_value(piece);
+        // Iterate through each piece type for each color
+        for piece_idx in 0..6 {
+            let piece = match piece_idx {
+                0 => Piece::Pawn,
+                1 => Piece::Knight,
+                2 => Piece::Bishop,
+                3 => Piece::Rook,
+                4 => Piece::Queen,
+                _ => Piece::King,
+            };
+            let value = Self::piece_value(piece);
 
-                match color {
-                    Color::White => white_material += value,
-                    Color::Black => black_material += value,
-                }
-            }
+            // Count white pieces
+            let white_count = board.pieces[Color::White as usize][piece_idx].count_ones() as i32;
+            white_material += white_count * value;
+
+            // Count black pieces
+            let black_count = board.pieces[Color::Black as usize][piece_idx].count_ones() as i32;
+            black_material += black_count * value;
         }
 
         white_material - black_material
@@ -72,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_initial_board_state() {
-        let board: Board = Board::default();
+        let board = Board2::new_standard();
         let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
@@ -83,15 +93,22 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_white_advantage() {
-        let mut board: Board = Board::default();
+        let mut board = Board2::new_standard();
 
-        // Remove Black pieces
-        board.squares[63].0 = None; // Rook
-        board.squares[62].0 = None; // Knight
-        board.squares[55].0 = None; // Pawn
+        // Remove Black pieces: Rook (63), Knight (62), Pawn (55)
+        board.pieces[Color::Black as usize][Piece::Rook as usize] &= !(1u64 << 63); // Remove h8 rook
+        board.pieces[Color::Black as usize][Piece::Knight as usize] &= !(1u64 << 62); // Remove g8 knight
+        board.pieces[Color::Black as usize][Piece::Pawn as usize] &= !(1u64 << 55); // Remove h7 pawn
 
-        // Remove White pieces
-        board.squares[0].0 = None; // Rook
+        // Remove White pieces: Rook (0)
+        board.pieces[Color::White as usize][Piece::Rook as usize] &= !(1u64 << 0); // Remove a1 rook
+
+        // Update occupancy
+        board.occ[Color::White as usize] =
+            board.pieces[Color::White as usize].iter().copied().sum();
+        board.occ[Color::Black as usize] =
+            board.pieces[Color::Black as usize].iter().copied().sum();
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
         let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = 420;
@@ -108,15 +125,22 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_black_advantage() {
-        let mut board: Board = Board::default();
+        let mut board = Board2::new_standard();
 
-        // Remove White pieces
-        board.squares[1].0 = None; // Knight
-        board.squares[6].0 = None; // Knight
+        // Remove White pieces: Knights (1, 6)
+        board.pieces[Color::White as usize][Piece::Knight as usize] &= !(1u64 << 1); // Remove b1 knight
+        board.pieces[Color::White as usize][Piece::Knight as usize] &= !(1u64 << 6); // Remove g1 knight
 
-        // Remove Black pieces
-        board.squares[62].0 = None; // Knight
-        board.squares[55].0 = None; // Pawn
+        // Remove Black pieces: Knight (62), Pawn (55)
+        board.pieces[Color::Black as usize][Piece::Knight as usize] &= !(1u64 << 62); // Remove g8 knight
+        board.pieces[Color::Black as usize][Piece::Pawn as usize] &= !(1u64 << 55); // Remove h7 pawn
+
+        // Update occupancy
+        board.occ[Color::White as usize] =
+            board.pieces[Color::White as usize].iter().copied().sum();
+        board.occ[Color::Black as usize] =
+            board.pieces[Color::Black as usize].iter().copied().sum();
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
         let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = -220;

@@ -60,16 +60,16 @@ impl Board2 {
         board.pieces[Color::White as usize][Piece::Rook as usize] = 0x0000_0000_0000_0081;
         board.pieces[Color::White as usize][Piece::Knight as usize] = 0x0000_0000_0000_0042;
         board.pieces[Color::White as usize][Piece::Bishop as usize] = 0x0000_0000_0000_0024;
-        board.pieces[Color::White as usize][Piece::Queen as usize] = 0x0000_0000_0000_0010;
-        board.pieces[Color::White as usize][Piece::King as usize] = 0x0000_0000_0000_0008;
+        board.pieces[Color::White as usize][Piece::Queen as usize] = 0x0000_0000_0000_0008; // d1
+        board.pieces[Color::White as usize][Piece::King as usize] = 0x0000_0000_0000_0010; // e1
 
         // Black pieces
         board.pieces[Color::Black as usize][Piece::Pawn as usize] = 0x00ff_0000_0000_0000;
         board.pieces[Color::Black as usize][Piece::Rook as usize] = 0x8100_0000_0000_0000;
         board.pieces[Color::Black as usize][Piece::Knight as usize] = 0x4200_0000_0000_0000;
         board.pieces[Color::Black as usize][Piece::Bishop as usize] = 0x2400_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::Queen as usize] = 0x1000_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::King as usize] = 0x0800_0000_0000_0000;
+        board.pieces[Color::Black as usize][Piece::Queen as usize] = 0x0800_0000_0000_0000; // d8
+        board.pieces[Color::Black as usize][Piece::King as usize] = 0x1000_0000_0000_0000; // e8
 
         // Occupancy
         board.occ[Color::White as usize] =
@@ -536,9 +536,77 @@ impl Board2 {
         self.king_sq[color as usize]
     }
 
+    pub fn has_castled(&self, color: Color) -> bool {
+        let king_sq = self.king_sq[color as usize];
+        match color {
+            Color::White => {
+                // White king castled if it's on g1 (6) or c1 (2)
+                king_sq == 6 || king_sq == 2
+            }
+            Color::Black => {
+                // Black king castled if it's on g8 (62) or c8 (58)
+                king_sq == 62 || king_sq == 58
+            }
+        }
+    }
+
     // Piece counts
     pub fn count_pieces(&self, color: Color, piece: Piece) -> u32 {
         self.pieces[color as usize][piece as usize].count_ones()
+    }
+}
+
+// Conversion from old Board to Board2
+impl From<&super::board::Board> for Board2 {
+    fn from(board: &super::board::Board) -> Self {
+        use super::castling::Side;
+
+        let mut board2 = Self::new_empty();
+
+        // Convert pieces
+        for sq in 0..64 {
+            if let Some((piece, color)) = board.squares[sq].0 {
+                let piece_idx = piece as usize;
+                let color_idx = color as usize;
+                board2.pieces[color_idx][piece_idx] |= 1u64 << sq;
+
+                // Update king position
+                if piece == Piece::King {
+                    board2.king_sq[color_idx] = sq as u8;
+                }
+            }
+        }
+
+        // Update occupancy
+        board2.occ[Color::White as usize] =
+            board2.pieces[Color::White as usize].iter().copied().sum();
+        board2.occ[Color::Black as usize] =
+            board2.pieces[Color::Black as usize].iter().copied().sum();
+        board2.occ_all = board2.occ[Color::White as usize] | board2.occ[Color::Black as usize];
+
+        // Copy game state
+        board2.side_to_move = board.side_to_move;
+
+        // Convert castling rights from individual flags to CastlingRights
+        board2.castling = CastlingRights::empty();
+        if !board.white_king_moved && !board.white_kingside_rook_moved {
+            board2.castling.add(Color::White, Side::KingSide);
+        }
+        if !board.white_king_moved && !board.white_queenside_rook_moved {
+            board2.castling.add(Color::White, Side::QueenSide);
+        }
+        if !board.black_king_moved && !board.black_kingside_rook_moved {
+            board2.castling.add(Color::Black, Side::KingSide);
+        }
+        if !board.black_king_moved && !board.black_queenside_rook_moved {
+            board2.castling.add(Color::Black, Side::QueenSide);
+        }
+
+        board2.en_passant = board.en_passant_target.map(|sq| sq as u8).unwrap_or(64);
+        board2.halfmove_clock = 0; // Board doesn't track halfmove clock
+        board2.hash = board.zobrist_hash;
+
+        board2
     }
 }
 
@@ -563,8 +631,8 @@ mod tests {
         assert_eq!(white_rooks, 0x0000_0000_0000_0081);
         assert_eq!(white_knights, 0x0000_0000_0000_0042);
         assert_eq!(white_bishops, 0x0000_0000_0000_0024);
-        assert_eq!(white_queen, 0x0000_0000_0000_0010);
-        assert_eq!(white_king, 0x0000_0000_0000_0008);
+        assert_eq!(white_queen, 0x0000_0000_0000_0008); // d1
+        assert_eq!(white_king, 0x0000_0000_0000_0010); // e1
 
         // Get Black pieces
         let black_pawns: u64 = board.pieces_of(Color::Black, Piece::Pawn);
@@ -579,8 +647,8 @@ mod tests {
         assert_eq!(black_rooks, 0x8100_0000_0000_0000);
         assert_eq!(black_knights, 0x4200_0000_0000_0000);
         assert_eq!(black_bishops, 0x2400_0000_0000_0000);
-        assert_eq!(black_queen, 0x1000_0000_0000_0000);
-        assert_eq!(black_king, 0x0800_0000_0000_0000);
+        assert_eq!(black_queen, 0x0800_0000_0000_0000); // d8
+        assert_eq!(black_king, 0x1000_0000_0000_0000); // e8
     }
 
     #[test]
@@ -632,8 +700,8 @@ mod tests {
         assert_eq!(board.piece_on(5), Some((Color::White, Piece::Bishop)));
 
         // White queen on d1 (3) and king on e1 (4)
-        assert_eq!(board.piece_on(3), Some((Color::White, Piece::King)));
-        assert_eq!(board.piece_on(4), Some((Color::White, Piece::Queen)));
+        assert_eq!(board.piece_on(3), Some((Color::White, Piece::Queen)));
+        assert_eq!(board.piece_on(4), Some((Color::White, Piece::King)));
 
         // White pawns on rank 2 (squares 8-15)
         for sq in 8..16 {
@@ -654,8 +722,8 @@ mod tests {
         assert_eq!(board.piece_on(61), Some((Color::Black, Piece::Bishop)));
 
         // Black queen on d8 (59) and king on e8 (60)
-        assert_eq!(board.piece_on(59), Some((Color::Black, Piece::King)));
-        assert_eq!(board.piece_on(60), Some((Color::Black, Piece::Queen)));
+        assert_eq!(board.piece_on(59), Some((Color::Black, Piece::Queen)));
+        assert_eq!(board.piece_on(60), Some((Color::Black, Piece::King)));
 
         // Black pawns on rank 7 (squares 48-55)
         for sq in 48..56 {

@@ -1,8 +1,8 @@
-use crate::board::{Board, ChessMove, ChessMoveState, MoveGenerator};
+use crate::board::{Board2, ChessMove, ChessMoveState, Color, MoveGenerator2, Piece};
 use std::io::{self, Write};
 
 pub struct Game {
-    board: Board,
+    board: Board2,
     move_history: Vec<ChessMoveState>,
 }
 
@@ -15,7 +15,7 @@ impl Default for Game {
 impl Game {
     pub fn new() -> Self {
         Self {
-            board: Board::new(),
+            board: Board2::default(),
             move_history: Vec::new(),
         }
     }
@@ -28,7 +28,7 @@ impl Game {
         println!("Type 'quit' to exit the game\n");
 
         loop {
-            self.board.print();
+            print_board(&self.board);
 
             // Check for checkmate
             if self.is_checkmate() {
@@ -85,7 +85,7 @@ impl Game {
         let chess_move = self.parse_move(input)?;
 
         // Apply the move
-        let state = self.board.apply_move(chess_move);
+        let state = self.board.make_move(chess_move);
         self.move_history.push(state);
 
         Ok(())
@@ -102,7 +102,7 @@ impl Game {
 
         // Find the matching legal move
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves
             .into_iter()
             .find(|m| m.from == from && m.to == to)
@@ -111,7 +111,7 @@ impl Game {
 
     fn undo_move(&mut self) -> bool {
         if let Some(state) = self.move_history.pop() {
-            self.board.undo_move(state);
+            self.board.unmake_move(state);
             true
         } else {
             false
@@ -119,16 +119,20 @@ impl Game {
     }
 
     fn is_checkmate(&self) -> bool {
-        MoveGenerator::is_checkmate(&self.board)
+        let mut legal_moves = Vec::with_capacity(128);
+        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        legal_moves.is_empty() && self.board.in_check(self.board.side_to_move)
     }
 
     fn is_stalemate(&self) -> bool {
-        MoveGenerator::is_stalemate(&self.board)
+        let mut legal_moves = Vec::with_capacity(128);
+        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
+        legal_moves.is_empty() && !self.board.in_check(self.board.side_to_move)
     }
 
     fn print_legal_moves(&self) {
         let mut legal_moves = Vec::with_capacity(128);
-        MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
+        MoveGenerator2::generate_legal_moves(&self.board, &mut legal_moves);
 
         if legal_moves.is_empty() {
             println!("No legal moves available.");
@@ -167,6 +171,56 @@ impl Game {
 
         println!("Total: {} legal moves\n", legal_moves.len());
     }
+}
+
+fn print_board(board: &Board2) {
+    // Unicode chess symbols
+    fn unicode_symbol(piece: Piece, color: Color) -> char {
+        match (piece, color) {
+            (Piece::Pawn, Color::White) => '♙',
+            (Piece::Knight, Color::White) => '♘',
+            (Piece::Bishop, Color::White) => '♗',
+            (Piece::Rook, Color::White) => '♖',
+            (Piece::Queen, Color::White) => '♕',
+            (Piece::King, Color::White) => '♔',
+            (Piece::Pawn, Color::Black) => '♟',
+            (Piece::Knight, Color::Black) => '♞',
+            (Piece::Bishop, Color::Black) => '♝',
+            (Piece::Rook, Color::Black) => '♜',
+            (Piece::Queen, Color::Black) => '♛',
+            (Piece::King, Color::Black) => '♚',
+        }
+    }
+
+    // ANSI color codes for board squares
+    const LIGHT_SQUARE: &str = "\x1b[48;5;230m"; // beige
+    const DARK_SQUARE: &str = "\x1b[48;5;94m"; // brown
+    const RESET: &str = "\x1b[0m";
+
+    println!("\n    a  b  c  d  e  f  g  h");
+    println!("   -------------------------");
+
+    for rank in (0..8).rev() {
+        print!("{} ", rank + 1);
+        for file in 0..8 {
+            let idx = rank * 8 + file;
+            let square_color = if (rank + file) % 2 == 0 {
+                LIGHT_SQUARE
+            } else {
+                DARK_SQUARE
+            };
+            let symbol = match board.piece_on(idx as u8) {
+                Some((color, piece)) => unicode_symbol(piece, color),
+                None => ' ',
+            };
+            print!("{} {} {}", square_color, symbol, RESET);
+        }
+        println!(" {}", rank + 1);
+    }
+
+    println!("   -------------------------");
+    println!("    a  b  c  d  e  f  g  h");
+    println!("\nSide to move: {:?}\n", board.side_to_move);
 }
 
 fn parse_square(s: &str) -> Result<usize, String> {

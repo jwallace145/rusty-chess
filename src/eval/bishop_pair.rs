@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -8,9 +8,9 @@ const BISHOP_PAIR_BONUS: i32 = 30;
 pub struct BishopPairEvaluator;
 
 impl BoardEvaluator for BishopPairEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
-        let white_bishops = board.count(Color::White, Piece::Bishop);
-        let black_bishops = board.count(Color::Black, Piece::Bishop);
+    fn evaluate(&self, board: &Board2) -> i32 {
+        let white_bishops = board.count_pieces(Color::White, Piece::Bishop);
+        let black_bishops = board.count_pieces(Color::Black, Piece::Bishop);
 
         let mut score = 0;
 

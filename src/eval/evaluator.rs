@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color},
+    board::{Board2, Color},
     eval::{
         bishop_pair::BishopPairEvaluator, central_control::CentralControlEvaluator,
         king_safety::KingSafetyEvaluator, knight_outpost::KnightOutpostEvaluator,
@@ -12,7 +12,7 @@ use crate::{
 /// Trait for all evaluators
 pub trait BoardEvaluator {
     /// Returns the evaluation score from White's perspective
-    fn evaluate(&self, board: &Board) -> i32;
+    fn evaluate(&self, board: &Board2) -> i32;
 }
 
 /// Evaluates a chess board position to guide the minimax search algorithm.
@@ -62,7 +62,7 @@ impl Evaluator {
         Self { evaluators }
     }
 
-    pub fn evaluate(&self, board: &Board) -> i32 {
+    pub fn evaluate(&self, board: &Board2) -> i32 {
         // Sum weighted evaluator scores
         let mut total: i32 = 0;
 

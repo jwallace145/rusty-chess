@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, Color, MoveGenerator},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -14,7 +14,7 @@ const CENTRAL_SQUARES: [usize; 4] = [27, 28, 35, 36]; // d4=27, e4=28, d5=35, e5
 pub struct CentralControlEvaluator;
 
 impl BoardEvaluator for CentralControlEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let mut score = 0;
 
         for &sq in &CENTRAL_SQUARES {
@@ -31,23 +31,34 @@ impl BoardEvaluator for CentralControlEvaluator {
 
 impl CentralControlEvaluator {
     /// Returns the number of pseudo-legal moves that can attack the target square
-    fn count_control(board: &Board, target_sq: usize, color: Color) -> u8 {
-        let mut moves = Vec::with_capacity(32);
+    fn count_control(board: &Board2, target_sq: usize, color: Color) -> u8 {
         let mut control_count = 0;
+        let target_mask = 1u64 << target_sq;
 
-        for (index, square) in board.squares.iter().enumerate() {
-            if let Some((piece, piece_color)) = square.0
-                && piece_color == color
-            {
-                moves.clear();
-                MoveGenerator::generate_piece_moves(board, index, piece, color, &mut moves);
+        // Iterate through all piece types for the given color
+        for piece_idx in 0..6 {
+            let piece = match piece_idx {
+                0 => Piece::Pawn,
+                1 => Piece::Knight,
+                2 => Piece::Bishop,
+                3 => Piece::Rook,
+                4 => Piece::Queen,
+                _ => Piece::King,
+            };
 
-                for mv in &moves {
-                    if mv.to == target_sq {
-                        control_count += 1;
-                        break; // count each square at most once per color
-                    }
+            let mut piece_bb = board.pieces[color as usize][piece_idx];
+            while piece_bb != 0 {
+                let sq = piece_bb.trailing_zeros() as u8;
+
+                // Get attack bitboard for this piece
+                let attacks = board.attacks_from(piece, sq, color);
+
+                // Check if this piece can attack the target square
+                if attacks & target_mask != 0 {
+                    control_count += 1;
                 }
+
+                piece_bb &= piece_bb - 1; // Clear the least significant bit
             }
         }
 

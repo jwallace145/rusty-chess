@@ -1,12 +1,12 @@
 use crate::{
-    board::{Board, Color, Piece},
+    board::{Board2, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
 pub struct PawnStructureEvaluator;
 
 impl BoardEvaluator for PawnStructureEvaluator {
-    fn evaluate(&self, board: &Board) -> i32 {
+    fn evaluate(&self, board: &Board2) -> i32 {
         let mut score = 0;
 
         // Build pawn maps for fast lookups
@@ -56,17 +56,24 @@ impl PawnStructureEvaluator {
         score
     }
 
-    fn build_pawn_maps(board: &Board) -> (Vec<usize>, Vec<usize>) {
+    fn build_pawn_maps(board: &Board2) -> (Vec<usize>, Vec<usize>) {
         let mut white_pawns: Vec<usize> = Vec::new();
         let mut black_pawns: Vec<usize> = Vec::new();
 
-        for (index, square) in board.squares.iter().enumerate() {
-            if let Some((Piece::Pawn, color)) = square.0 {
-                match color {
-                    Color::White => white_pawns.push(index),
-                    Color::Black => black_pawns.push(index),
-                }
-            }
+        // Iterate through white pawns bitboard
+        let mut white_bb = board.pieces[Color::White as usize][Piece::Pawn as usize];
+        while white_bb != 0 {
+            let sq = white_bb.trailing_zeros() as usize;
+            white_pawns.push(sq);
+            white_bb &= white_bb - 1; // Clear the least significant bit
+        }
+
+        // Iterate through black pawns bitboard
+        let mut black_bb = board.pieces[Color::Black as usize][Piece::Pawn as usize];
+        while black_bb != 0 {
+            let sq = black_bb.trailing_zeros() as usize;
+            black_pawns.push(sq);
+            black_bb &= black_bb - 1; // Clear the least significant bit
         }
 
         (white_pawns, black_pawns)

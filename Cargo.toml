@@ -12,6 +12,10 @@ bincode = "1.3"
 once_cell = "1.21.3"
 
 [[bin]]
+name = "calculate-relevant-bits"
+path = "src/bin/calculate_relevant_bits.rs"
+
+[[bin]]
 name = "find-magic-numbers"
 path = "src/bin/find_magic_numbers.rs"
 
@@ -31,3 +35,7 @@ path = "src/bin/playground.rs"
 [[bin]]
 name = "create-knight-king-attack-tables"
 path = "src/bin/create_knight_king_attack_tables.rs"
+
+[[bin]]
+name = "two-player-chess"
+path = "src/bin/two_player_chess.rs"
