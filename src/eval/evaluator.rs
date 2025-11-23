@@ -5,7 +5,7 @@ use crate::{
         king_safety::KingSafetyEvaluator, knight_outpost::KnightOutpostEvaluator,
         material::MaterialEvaluator, mobility::MobilityEvaluator,
         pawn_structure::PawnStructureEvaluator, position::PositionEvaluator,
-        rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator,
+        rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator, threat::ThreatEvaluator,
     },
 };
 
@@ -32,6 +32,7 @@ pub trait BoardEvaluator {
 /// - **Tempo**: Provides a small bonus for the side to move.
 /// - **Bishop Pair**: Rewards having two bishops.
 /// - **Knight Outpost**: Rewards knights on squares safe from enemy pawns and advanced into the enemy territory.
+/// - **Threat**: Penalizes hanging pieces and pieces attacked by lower-value pieces (e.g., pawns).
 ///
 /// Positive scores favor White; negative scores favor Black.
 pub struct Evaluator {
@@ -57,6 +58,7 @@ impl Evaluator {
             (Box::new(KnightOutpostEvaluator), 1),
             (Box::new(RookFileEvaluator), 1),
             (Box::new(CentralControlEvaluator), 1),
+            (Box::new(ThreatEvaluator), 1),
         ];
 
         Self { evaluators }

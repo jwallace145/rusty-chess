@@ -172,6 +172,32 @@ impl Board2 {
         }
     }
 
+    /// Returns a bitboard of all squares attacked by the given color
+    pub fn attacks(&self, color: Color) -> u64 {
+        let mut attacks = 0u64;
+
+        // Iterate through all piece types
+        for piece in [
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
+            let mut pieces = self.pieces_of(color, piece);
+
+            // Iterate through all pieces of this type
+            while pieces != 0 {
+                let sq = pieces.trailing_zeros() as u8;
+                attacks |= self.attacks_from(piece, sq, color);
+                pieces &= pieces - 1; // Clear the least significant bit
+            }
+        }
+
+        attacks
+    }
+
     /// Returns true if the given square `sq` is attacked by the given color `by`.
     pub fn is_square_attacked(&self, sq: u8, by: Color) -> bool {
         let sq = sq as usize;
@@ -1250,6 +1276,158 @@ mod tests {
 
         assert!(board.in_check(Color::White));
         assert!(board.in_check(Color::Black));
+    }
+
+    #[test]
+    fn test_board_refactor_attacks() {
+        // Test that attacks() returns all squares attacked by a color
+        let mut board = Board2::new_empty();
+
+        // Set up a simple position with a few white pieces
+        // White queen on d4, white knight on b3
+        board.pieces[Color::White as usize][Piece::Queen as usize] = 1u64 << 27; // d4
+        board.pieces[Color::White as usize][Piece::Knight as usize] = 1u64 << 17; // b3
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
+        board.occ[Color::White as usize] = (1u64 << 27) | (1u64 << 17) | (1u64 << 4);
+
+        // Black king far away
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
+        board.occ[Color::Black as usize] = 1u64 << 60;
+
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
+
+        // Get all white attacks
+        let white_attacks = board.attacks(Color::White);
+
+        // The white queen on d4 should attack many squares
+        // The white knight on b3 should attack a1, c1, d2, d4, a5, c5
+        // The white king on e1 should attack d1, d2, e2, f1, f2
+
+        // Verify that certain squares are attacked by white
+        assert_ne!(
+            white_attacks & (1u64 << 35),
+            0,
+            "d5 should be attacked by queen"
+        ); // d5 (by queen)
+        assert_ne!(
+            white_attacks & (1u64 << 19),
+            0,
+            "d3 should be attacked by queen"
+        ); // d3 (by queen)
+        assert_ne!(
+            white_attacks & (1u64 << 28),
+            0,
+            "e4 should be attacked by queen"
+        ); // e4 (by queen)
+        assert_ne!(
+            white_attacks & (1u64 << 0),
+            0,
+            "a1 should be attacked by knight"
+        ); // a1 (by knight)
+        assert_ne!(
+            white_attacks & (1u64 << 32),
+            0,
+            "a5 should be attacked by knight"
+        ); // a5 (by knight)
+        assert_ne!(
+            white_attacks & (1u64 << 11),
+            0,
+            "d2 should be attacked by knight or king"
+        ); // d2 (by knight/king)
+        assert_ne!(
+            white_attacks & (1u64 << 3),
+            0,
+            "d1 should be attacked by king"
+        ); // d1 (by king)
+        assert_ne!(
+            white_attacks & (1u64 << 12),
+            0,
+            "e2 should be attacked by king"
+        ); // e2 (by king)
+
+        // Verify that a square not attacked is not in the bitboard
+        // For instance, b8 should not be attacked (not on queen's diagonals/lines, out of knight/king range)
+        assert_eq!(white_attacks & (1u64 << 57), 0, "b8 should not be attacked");
+
+        // Test black attacks - only the king on e8
+        let black_attacks = board.attacks(Color::Black);
+
+        // Black king on e8 attacks d8, d7, e7, f7, f8
+        assert_ne!(
+            black_attacks & (1u64 << 59),
+            0,
+            "d8 should be attacked by black king"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 51),
+            0,
+            "d7 should be attacked by black king"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 52),
+            0,
+            "e7 should be attacked by black king"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 53),
+            0,
+            "f7 should be attacked by black king"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 61),
+            0,
+            "f8 should be attacked by black king"
+        );
+
+        // Verify that a1 is not attacked by black
+        assert_eq!(
+            black_attacks & (1u64 << 0),
+            0,
+            "a1 should not be attacked by black"
+        );
+
+        // Test with standard starting position
+        let board = Board2::new_standard();
+        let white_attacks = board.attacks(Color::White);
+        let black_attacks = board.attacks(Color::Black);
+
+        // In the starting position, white attacks rank 3 with pawns and knights
+        // White pawn on a2 attacks b3
+        assert_ne!(
+            white_attacks & (1u64 << 17),
+            0,
+            "b3 should be attacked by white in starting position"
+        );
+        // White knight on b1 attacks a3, c3, d2
+        assert_ne!(
+            white_attacks & (1u64 << 16),
+            0,
+            "a3 should be attacked by white knight"
+        );
+        assert_ne!(
+            white_attacks & (1u64 << 18),
+            0,
+            "c3 should be attacked by white knight"
+        );
+
+        // Black attacks rank 6 with pawns and knights
+        assert_ne!(
+            black_attacks & (1u64 << 41),
+            0,
+            "b6 should be attacked by black in starting position"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 40),
+            0,
+            "a6 should be attacked by black knight"
+        );
+        assert_ne!(
+            black_attacks & (1u64 << 42),
+            0,
+            "c6 should be attacked by black knight"
+        );
     }
 
     #[test]
