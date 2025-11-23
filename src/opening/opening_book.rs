@@ -1,4 +1,4 @@
-use crate::board::Board;
+use crate::board::Board2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -58,13 +58,13 @@ impl OpeningBook {
 // Build book manually from common openings
 pub fn create_basic_book() -> OpeningBook {
     let mut book = OpeningBook::new();
-    let mut board = Board::new();
+    let mut board = Board2::new_standard();
 
     // Helper to add a move sequence
-    let add_line = |book: &mut OpeningBook, board: &mut Board, moves: &[&str]| {
-        *board = Board::new();
+    let add_line = |book: &mut OpeningBook, board: &mut Board2, moves: &[&str]| {
+        *board = Board2::new_standard();
         for move_uci in moves {
-            let hash = board.zobrist_hash;
+            let hash = board.hash;
             book.add_move(hash, move_uci.to_string());
             let m = board.parse_uci(move_uci).unwrap();
             board.apply_move(m);

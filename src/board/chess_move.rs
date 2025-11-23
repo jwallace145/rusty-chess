@@ -30,6 +30,7 @@ pub struct ChessMoveState {
     pub black_queenside_rook_moved: bool,
     pub previous_en_passant: Option<usize>,
     pub previous_zobrist_hash: u64,
+    pub previous_halfmove_clock: u8,
 }
 
 impl ChessMove {

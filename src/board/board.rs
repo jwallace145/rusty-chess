@@ -121,6 +121,7 @@ impl Board {
             black_queenside_rook_moved: self.black_queenside_rook_moved,
             previous_en_passant: self.en_passant_target,
             previous_zobrist_hash: self.zobrist_hash,
+            previous_halfmove_clock: 0, // Old Board doesn't track halfmove clock
         };
 
         // Update hash and remove old en passant

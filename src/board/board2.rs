@@ -2,6 +2,7 @@ use super::{CastlingRights, Color, Piece};
 use crate::{
     attacks::database::ATTACKS_DB,
     board::{ChessMove, ChessMoveState, move_generator2::MoveGenerator2},
+    search::compute_hash_board2,
 };
 
 #[derive(Copy, Clone)]
@@ -94,7 +95,7 @@ impl Board2 {
         // Halfmove clock
         board.halfmove_clock = 0;
 
-        board.hash = 0; // You can initialize with Zobrist hash later
+        board.hash = compute_hash_board2(&board);
 
         board
     }
@@ -234,6 +235,7 @@ impl Board2 {
     // State operations
     pub fn make_move(&mut self, mv: ChessMove) -> ChessMoveState {
         use super::chess_move::ChessMoveType;
+        use crate::search::{CastlingRight, ZobristTable};
 
         let from = mv.from as u8;
         let to = mv.to as u8;
@@ -264,13 +266,75 @@ impl Board2 {
             } else {
                 None
             },
-            previous_zobrist_hash: (self.hash & 0xFFFF_FFFF_FFFF_FF00)
-                | (self.halfmove_clock as u64),
+            previous_zobrist_hash: self.hash,
+            previous_halfmove_clock: self.halfmove_clock,
         };
 
         // Save castling rights and halfmove clock before the move
-        let _old_castling = self.castling;
-        let _old_halfmove = self.halfmove_clock;
+        let old_castling = self.castling;
+        let old_en_passant = self.en_passant;
+
+        // === INCREMENTAL ZOBRIST HASH UPDATE: XOR OUT OLD STATE ===
+        let zobrist = ZobristTable::get();
+
+        // 1. XOR out piece at from square
+        if let Some((moving_color, moving_piece)) = moved_piece {
+            self.hash ^= zobrist.piece(moving_piece, moving_color, from as usize);
+        }
+
+        // 2. XOR out captured piece (if any)
+        if mv.capture {
+            if mv.move_type == ChessMoveType::EnPassant {
+                // En passant - the captured pawn is not on the to square
+                let captured_pawn_sq = match self.side_to_move {
+                    Color::White => to - 8,
+                    Color::Black => to + 8,
+                };
+                self.hash ^= zobrist.piece(
+                    Piece::Pawn,
+                    self.side_to_move.opponent(),
+                    captured_pawn_sq as usize,
+                );
+            } else if let Some((cap_color, cap_piece)) = captured_piece {
+                self.hash ^= zobrist.piece(cap_piece, cap_color, to as usize);
+            }
+        }
+
+        // 3. XOR out rook if castling (will be moved to new square)
+        if mv.move_type == ChessMoveType::Castle {
+            match to {
+                6 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 7), // h1
+                2 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 0), // a1
+                62 => self.hash ^= zobrist.piece(Piece::Rook, Color::Black, 63), // h8
+                58 => self.hash ^= zobrist.piece(Piece::Rook, Color::Black, 56), // a8
+                _ => {}
+            }
+        }
+
+        // 4. XOR out old castling rights
+        if old_castling.has(Color::White, Side::KingSide) {
+            self.hash ^= zobrist.castling(CastlingRight::WhiteKingside);
+        }
+        if old_castling.has(Color::White, Side::QueenSide) {
+            self.hash ^= zobrist.castling(CastlingRight::WhiteQueenside);
+        }
+        if old_castling.has(Color::Black, Side::KingSide) {
+            self.hash ^= zobrist.castling(CastlingRight::BlackKingside);
+        }
+        if old_castling.has(Color::Black, Side::QueenSide) {
+            self.hash ^= zobrist.castling(CastlingRight::BlackQueenside);
+        }
+
+        // 5. XOR out old en passant
+        if old_en_passant < 64 {
+            let file = (old_en_passant % 8) as usize;
+            self.hash ^= zobrist.en_passant(file);
+        }
+
+        // 6. XOR out old side to move (if Black)
+        if self.side_to_move == Color::Black {
+            self.hash ^= zobrist.side_to_move();
+        }
 
         // Apply the move
         if let Some((moving_color, moving_piece)) = moved_piece {
@@ -404,6 +468,52 @@ impl Board2 {
 
             // Switch side to move
             self.side_to_move = self.side_to_move.opponent();
+
+            // === INCREMENTAL ZOBRIST HASH UPDATE: XOR IN NEW STATE ===
+
+            // 7. XOR in piece at to square (might be promoted)
+            let final_piece = if let ChessMoveType::Promotion(promo_piece) = mv.move_type {
+                promo_piece
+            } else {
+                moving_piece
+            };
+            self.hash ^= zobrist.piece(final_piece, moving_color, to as usize);
+
+            // 8. XOR in rook at new position if castling
+            if mv.move_type == ChessMoveType::Castle {
+                match to {
+                    6 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 5), // f1
+                    2 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 3), // d1
+                    62 => self.hash ^= zobrist.piece(Piece::Rook, Color::Black, 61), // f8
+                    58 => self.hash ^= zobrist.piece(Piece::Rook, Color::Black, 59), // d8
+                    _ => {}
+                }
+            }
+
+            // 9. XOR in new castling rights
+            if self.castling.has(Color::White, Side::KingSide) {
+                self.hash ^= zobrist.castling(CastlingRight::WhiteKingside);
+            }
+            if self.castling.has(Color::White, Side::QueenSide) {
+                self.hash ^= zobrist.castling(CastlingRight::WhiteQueenside);
+            }
+            if self.castling.has(Color::Black, Side::KingSide) {
+                self.hash ^= zobrist.castling(CastlingRight::BlackKingside);
+            }
+            if self.castling.has(Color::Black, Side::QueenSide) {
+                self.hash ^= zobrist.castling(CastlingRight::BlackQueenside);
+            }
+
+            // 10. XOR in new en passant
+            if self.en_passant < 64 {
+                let file = (self.en_passant % 8) as usize;
+                self.hash ^= zobrist.en_passant(file);
+            }
+
+            // 11. XOR in new side to move (if Black)
+            if self.side_to_move == Color::Black {
+                self.hash ^= zobrist.side_to_move();
+            }
         }
 
         state
@@ -523,18 +633,11 @@ impl Board2 {
             self.castling.add(Color::Black, Side::QueenSide);
         }
 
-        // Restore halfmove clock from lower byte of hash
-        self.halfmove_clock = (state.previous_zobrist_hash & 0xFF) as u8;
+        // Restore halfmove clock
+        self.halfmove_clock = state.previous_halfmove_clock;
 
-        // Restore zobrist hash (upper 56 bits)
-        self.hash = state.previous_zobrist_hash & 0xFFFF_FFFF_FFFF_FF00;
-    }
-
-    /// Recompute the zobrist hash for the current position.
-    /// This is a workaround for the fact that make_move doesn't update the hash.
-    /// TODO: Fix make_move to update the hash incrementally.
-    pub fn recompute_hash(&mut self) {
-        self.hash = crate::search::compute_hash_board2(self);
+        // Restore zobrist hash
+        self.hash = state.previous_zobrist_hash;
     }
 
     // King helpers
@@ -1299,6 +1402,107 @@ mod tests {
     }
 
     #[test]
+    fn test_incremental_zobrist_hash_update() {
+        use crate::board::chess_move::ChessMoveType;
+        use crate::search::compute_hash_board2;
+
+        // Test that make_move updates the hash incrementally and correctly
+        let mut board = Board2::new_standard();
+
+        // Make a move: e2e4
+        let mv = ChessMove {
+            from: 12,
+            to: 28,
+            capture: false,
+            move_type: ChessMoveType::Normal,
+        };
+
+        board.make_move(mv);
+
+        // Verify the hash matches what we'd get from a full recomputation
+        let expected_hash = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash,
+            "Incremental hash update should match full recomputation after e2e4"
+        );
+
+        // Make another move: e7e5
+        let mv2 = ChessMove {
+            from: 52,
+            to: 36,
+            capture: false,
+            move_type: ChessMoveType::Normal,
+        };
+
+        board.make_move(mv2);
+
+        // Verify the hash still matches
+        let expected_hash2 = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash2,
+            "Incremental hash update should match full recomputation after e7e5"
+        );
+
+        // Test with a capture
+        let mut board = Board2::new_empty();
+        board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 27; // d4
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.king_sq[Color::White as usize] = 4;
+        board.pieces[Color::Black as usize][Piece::Pawn as usize] = 1u64 << 36; // e5
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::Black as usize] = 60;
+        board.occ[Color::White as usize] = (1u64 << 27) | (1u64 << 4);
+        board.occ[Color::Black as usize] = (1u64 << 36) | (1u64 << 60);
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
+        board.side_to_move = Color::White;
+        board.hash = compute_hash_board2(&board);
+
+        // Capture: d4xe5
+        let capture_mv = ChessMove {
+            from: 27,
+            to: 36,
+            capture: true,
+            move_type: ChessMoveType::Normal,
+        };
+
+        board.make_move(capture_mv);
+
+        let expected_hash3 = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash3,
+            "Incremental hash update should match full recomputation after capture"
+        );
+    }
+
+    #[test]
+    fn test_incremental_hash_undo() {
+        use crate::board::chess_move::ChessMoveType;
+
+        // Test that unmake_move properly restores the hash
+        let mut board = Board2::new_standard();
+        let original_hash = board.hash;
+
+        // Make a move
+        let mv = ChessMove {
+            from: 12,
+            to: 28,
+            capture: false,
+            move_type: ChessMoveType::Normal,
+        };
+
+        let state = board.make_move(mv);
+
+        // Undo the move
+        board.unmake_move(state);
+
+        // Verify the hash is restored
+        assert_eq!(
+            board.hash, original_hash,
+            "Hash should be restored to original value after undo"
+        );
+    }
+
+    #[test]
     fn test_castling_rights_update() {
         use crate::board::castling::Side;
         use crate::board::chess_move::ChessMoveType;
@@ -1332,5 +1536,153 @@ mod tests {
         assert!(!board.castling.has(Color::White, Side::QueenSide));
         assert!(board.castling.has(Color::Black, Side::KingSide));
         assert!(board.castling.has(Color::Black, Side::QueenSide));
+    }
+
+    #[test]
+    fn test_incremental_zobrist_hash() {
+        use crate::search::compute_hash_board2;
+
+        let mut board = Board2::new_standard();
+        let mut moves = Vec::new();
+
+        // Generate and play several moves, verifying hash after each
+        for _ in 0..10 {
+            moves.clear();
+            board.generate_moves(&mut moves);
+
+            if moves.is_empty() {
+                break;
+            }
+
+            // Take the first legal move
+            let mv = moves[0];
+            let state = board.make_move(mv);
+
+            // Compute hash from scratch
+            let expected_hash = compute_hash_board2(&board);
+
+            // Compare with incrementally updated hash
+            assert_eq!(
+                board.hash,
+                expected_hash,
+                "Incremental hash mismatch after move {}. \
+                 Incremental: {:#x}, Expected: {:#x}",
+                mv.to_uci(),
+                board.hash,
+                expected_hash
+            );
+
+            // Undo the move
+            board.unmake_move(state);
+
+            // Verify hash is restored correctly
+            let restored_hash = compute_hash_board2(&board);
+            assert_eq!(
+                board.hash, restored_hash,
+                "Hash not properly restored after unmake_move. \
+                 Current: {:#x}, Expected: {:#x}",
+                board.hash, restored_hash
+            );
+        }
+    }
+
+    #[test]
+    fn test_zobrist_hash_with_en_passant() {
+        use crate::search::compute_hash_board2;
+
+        let mut board = Board2::new_standard();
+
+        // Make a double pawn push to set en passant
+        let e2e4 = board.parse_uci("e2e4").unwrap();
+        board.make_move(e2e4);
+
+        // Verify en passant is set correctly in hash
+        let expected_hash = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash,
+            "Hash mismatch with en passant. Incremental: {:#x}, Expected: {:#x}",
+            board.hash, expected_hash
+        );
+
+        // Make another move that clears en passant
+        let e7e5 = board.parse_uci("e7e5").unwrap();
+        board.make_move(e7e5);
+
+        let expected_hash = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash,
+            "Hash mismatch after en passant cleared. Incremental: {:#x}, Expected: {:#x}",
+            board.hash, expected_hash
+        );
+    }
+
+    #[test]
+    fn test_zobrist_hash_with_castling() {
+        use crate::search::compute_hash_board2;
+
+        let mut board = Board2::new_standard();
+
+        // Set up position for castling
+        let moves = vec!["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"];
+        for move_uci in moves {
+            let mv = board.parse_uci(move_uci).unwrap();
+            board.make_move(mv);
+
+            let expected_hash = compute_hash_board2(&board);
+            assert_eq!(
+                board.hash, expected_hash,
+                "Hash mismatch after {}. Incremental: {:#x}, Expected: {:#x}",
+                move_uci, board.hash, expected_hash
+            );
+        }
+
+        // Castle kingside
+        let castle = board.parse_uci("e1g1").unwrap();
+        board.make_move(castle);
+
+        let expected_hash = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash,
+            "Hash mismatch after castling. Incremental: {:#x}, Expected: {:#x}",
+            board.hash, expected_hash
+        );
+    }
+
+    #[test]
+    fn test_zobrist_hash_with_promotion() {
+        use crate::board::chess_move::ChessMoveType;
+        use crate::search::compute_hash_board2;
+
+        // Set up a position where white can promote
+        let mut board = Board2::new_empty();
+        board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 48; // a7
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.king_sq[Color::White as usize] = 4;
+        board.king_sq[Color::Black as usize] = 60;
+        board.occ[Color::White as usize] = (1u64 << 48) | (1u64 << 4);
+        board.occ[Color::Black as usize] = 1u64 << 60;
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
+        board.side_to_move = Color::White;
+        board.castling = CastlingRights::empty();
+        board.en_passant = 64;
+        board.halfmove_clock = 0;
+        board.hash = compute_hash_board2(&board);
+
+        // Promote pawn to queen
+        let promote = ChessMove {
+            from: 48,
+            to: 56,
+            capture: false,
+            move_type: ChessMoveType::Promotion(Piece::Queen),
+        };
+        board.make_move(promote);
+
+        let expected_hash = compute_hash_board2(&board);
+        assert_eq!(
+            board.hash, expected_hash,
+            "Hash mismatch after promotion. Incremental: {:#x}, Expected: {:#x}",
+            board.hash, expected_hash
+        );
     }
 }

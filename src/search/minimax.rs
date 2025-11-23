@@ -88,7 +88,6 @@ impl Minimax {
         for chess_move in &moves {
             let mut board_copy = *board;
             board_copy.make_move(*chess_move);
-            board_copy.recompute_hash(); // WORKAROUND: Board2 doesn't update hash in make_move
 
             // Push position before recursing
             history.push(board_copy.hash);
@@ -183,7 +182,6 @@ impl Minimax {
         for chess_move in moves {
             let mut board_copy = *board;
             board_copy.make_move(chess_move);
-            board_copy.recompute_hash(); // WORKAROUND: Board2 doesn't update hash in make_move
 
             // Push position before recursing
             history.push(board_copy.hash);

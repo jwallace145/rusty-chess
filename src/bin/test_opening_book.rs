@@ -1,9 +1,9 @@
-use rusty_chess::board::Board;
+use rusty_chess::board::Board2;
 use rusty_chess::opening::{OpeningBook, create_basic_book};
 
 // Test that a specific position in an opening is present in the book
 fn test_position_in_book(book: &OpeningBook, name: &str, moves: &[&str]) -> bool {
-    let mut board = Board::new();
+    let mut board = Board2::new_standard();
 
     print!("{}: ", name);
 
@@ -21,7 +21,7 @@ fn test_position_in_book(book: &OpeningBook, name: &str, moves: &[&str]) -> bool
     }
 
     // Check if the position is in the book
-    let hash = board.zobrist_hash;
+    let hash = board.hash;
     if let Some(book_move) = book.probe(hash) {
         // Verify the book move is legal
         match board.parse_uci(book_move) {
