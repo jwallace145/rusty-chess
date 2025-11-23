@@ -1,4 +1,7 @@
-use crate::{board::ChessMove, transpositions::entry::TTEntry};
+use crate::{
+    board::ChessMove,
+    transpositions::entry::{Bound, TTEntry},
+};
 
 /// A cache for previously evaluated chess positions.
 ///
@@ -41,6 +44,7 @@ impl TranspositionTable {
             depth: 0,
             score: 0,
             best_move: None,
+            bound: Bound::Exact,
         };
         Self {
             table: vec![entry; num_entries],
@@ -51,11 +55,14 @@ impl TranspositionTable {
     }
 
     /// Probe the cache for a previously evaluated position
-    pub fn probe(&mut self, hash: u64, depth: u8) -> Option<TTEntry> {
+    ///
+    /// Returns the entry if the hash matches, regardless of depth.
+    /// The caller is responsible for checking if the stored depth is sufficient.
+    pub fn probe(&mut self, hash: u64) -> Option<TTEntry> {
         let index = (hash as usize) % self.num_entries;
         let entry = self.table[index];
 
-        if entry.hash == hash && entry.depth >= depth {
+        if entry.hash == hash {
             self.hits += 1;
             return Some(entry);
         }
@@ -64,7 +71,14 @@ impl TranspositionTable {
     }
 
     /// Store evaluated position in the cache (evict entries with lower depth)
-    pub fn store(&mut self, hash: u64, depth: u8, score: i32, best_move: Option<ChessMove>) {
+    pub fn store(
+        &mut self,
+        hash: u64,
+        depth: u8,
+        score: i32,
+        best_move: Option<ChessMove>,
+        bound: Bound,
+    ) {
         let index = (hash as usize) % self.num_entries;
         let entry = &self.table[index];
 
@@ -75,6 +89,7 @@ impl TranspositionTable {
                 depth,
                 score,
                 best_move,
+                bound,
             };
         }
     }
@@ -85,6 +100,7 @@ impl TranspositionTable {
             depth: 0,
             score: 0,
             best_move: None,
+            bound: Bound::Exact,
         };
         self.table.fill(empty_entry);
         self.hits = 0;
@@ -151,24 +167,25 @@ mod tests {
         let best_move = None;
 
         // Store an entry
-        tt.store(hash, depth, score, best_move);
+        tt.store(hash, depth, score, best_move, Bound::Exact);
 
-        // Probe with same depth - should hit
-        let result = tt.probe(hash, depth);
+        // Probe - should hit
+        let result = tt.probe(hash);
         assert!(result.is_some());
         let entry = result.unwrap();
         assert_eq!(entry.hash, hash);
         assert_eq!(entry.depth, depth);
         assert_eq!(entry.score, score);
         assert_eq!(entry.best_move, best_move);
+        assert_eq!(entry.bound, Bound::Exact);
 
         // Verify stats show 1 hit, 0 misses
         let (hits, misses) = tt.stats();
         assert_eq!(hits, 1);
         assert_eq!(misses, 0);
 
-        // Probe with lower depth - should also hit
-        let result2 = tt.probe(hash, depth - 1);
+        // Probe again - should also hit
+        let result2 = tt.probe(hash);
         assert!(result2.is_some());
 
         // Stats should now show 2 hits
@@ -183,7 +200,7 @@ mod tests {
         let hash = 12345u64;
 
         // Probe empty table - should miss
-        let result = tt.probe(hash, 5);
+        let result = tt.probe(hash);
         assert!(result.is_none());
 
         // Verify stats show 0 hits, 1 miss
@@ -192,16 +209,16 @@ mod tests {
         assert_eq!(misses, 1);
 
         // Store an entry at depth 3
-        tt.store(hash, 3, 100, None);
+        tt.store(hash, 3, 100, None, Bound::Exact);
 
-        // Probe with higher depth requirement - should miss
-        let result = tt.probe(hash, 5);
-        assert!(result.is_none());
+        // Probe with same hash - should hit
+        let result = tt.probe(hash);
+        assert!(result.is_some());
 
-        // Stats should show 0 hits, 2 misses
+        // Stats should show 1 hit, 1 miss
         let (hits, misses) = tt.stats();
-        assert_eq!(hits, 0);
-        assert_eq!(misses, 2);
+        assert_eq!(hits, 1);
+        assert_eq!(misses, 1);
     }
 
     #[test]
@@ -210,25 +227,27 @@ mod tests {
         let hash = 12345u64;
 
         // Store entry at depth 3
-        tt.store(hash, 3, 100, None);
+        tt.store(hash, 3, 100, None, Bound::Exact);
 
         // Store entry at higher depth - should replace
-        tt.store(hash, 5, 200, None);
+        tt.store(hash, 5, 200, None, Bound::LowerBound);
 
-        let result = tt.probe(hash, 5);
+        let result = tt.probe(hash);
         assert!(result.is_some());
         let entry = result.unwrap();
         assert_eq!(entry.depth, 5);
         assert_eq!(entry.score, 200);
+        assert_eq!(entry.bound, Bound::LowerBound);
 
         // Store entry at lower depth - should NOT replace
-        tt.store(hash, 2, 300, None);
+        tt.store(hash, 2, 300, None, Bound::UpperBound);
 
-        let result = tt.probe(hash, 2);
+        let result = tt.probe(hash);
         assert!(result.is_some());
         let entry = result.unwrap();
         assert_eq!(entry.depth, 5); // Should still be the deeper entry
         assert_eq!(entry.score, 200); // Should still be the deeper entry's score
+        assert_eq!(entry.bound, Bound::LowerBound);
     }
 
     #[test]
@@ -236,9 +255,9 @@ mod tests {
         let mut tt = TranspositionTable::new_with_entries(1024);
 
         // Add some entries
-        tt.store(12345, 5, 100, None);
-        tt.store(67890, 3, 200, None);
-        tt.probe(12345, 5);
+        tt.store(12345, 5, 100, None, Bound::Exact);
+        tt.store(67890, 3, 200, None, Bound::LowerBound);
+        tt.probe(12345);
 
         // Clear the table
         tt.clear();
@@ -249,7 +268,7 @@ mod tests {
         assert_eq!(misses, 0);
 
         // Verify entries are gone
-        let result = tt.probe(12345, 5);
+        let result = tt.probe(12345);
         assert!(result.is_none());
 
         // Verify size is 0
@@ -271,15 +290,15 @@ mod tests {
         assert_eq!(tt.size(), 0);
 
         // Add one entry
-        tt.store(12345, 5, 100, None);
+        tt.store(12345, 5, 100, None, Bound::Exact);
         assert_eq!(tt.size(), 1);
 
         // Add another entry
-        tt.store(67890, 3, 200, None);
+        tt.store(67890, 3, 200, None, Bound::LowerBound);
         assert_eq!(tt.size(), 2);
 
         // Replace existing entry (size should stay the same)
-        tt.store(12345, 6, 150, None);
+        tt.store(12345, 6, 150, None, Bound::UpperBound);
         assert_eq!(tt.size(), 2);
     }
 }

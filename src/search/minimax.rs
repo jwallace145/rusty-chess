@@ -2,8 +2,83 @@ use crate::board::{Board2, ChessMove, Piece};
 use crate::eval::Evaluator;
 use crate::movegen::MoveGenerator;
 use crate::search::SearchHistory;
-use crate::transpositions::TranspositionTable;
+use crate::transpositions::{Bound, TranspositionTable};
 use std::time::Instant;
+
+/// Maximum search depth for PV table
+const MAX_PLY: usize = 64;
+
+/// History heuristic table for move ordering.
+/// Tracks scores for quiet moves that cause beta cutoffs.
+/// Indexed by [from_square][to_square] where squares are 0-63.
+#[derive(Clone)]
+pub struct HistoryTable {
+    scores: [[i32; 64]; 64],
+}
+
+impl HistoryTable {
+    pub fn new() -> Self {
+        Self {
+            scores: [[0; 64]; 64],
+        }
+    }
+
+    /// Get the history score for a move
+    pub fn get(&self, chess_move: &ChessMove) -> i32 {
+        self.scores[chess_move.from][chess_move.to]
+    }
+
+    /// Increment history score for a move that caused a beta cutoff
+    pub fn increment(&mut self, chess_move: &ChessMove, depth: u8) {
+        let from = chess_move.from;
+        let to = chess_move.to;
+        // Bonus based on depth: deeper searches get higher bonuses
+        self.scores[from][to] += (depth as i32) * (depth as i32);
+    }
+
+    /// Clear all history scores
+    #[allow(dead_code)]
+    pub fn clear(&mut self) {
+        self.scores = [[0; 64]; 64];
+    }
+}
+
+/// Principal Variation table.
+/// Stores the best move found at each depth from previous iterations.
+#[derive(Clone)]
+pub struct PVTable {
+    moves: [Option<ChessMove>; MAX_PLY],
+}
+
+impl PVTable {
+    pub fn new() -> Self {
+        Self {
+            moves: [None; MAX_PLY],
+        }
+    }
+
+    /// Get the PV move for a given depth
+    pub fn get(&self, depth: usize) -> Option<ChessMove> {
+        if depth < MAX_PLY {
+            self.moves[depth]
+        } else {
+            None
+        }
+    }
+
+    /// Store the PV move for a given depth
+    pub fn set(&mut self, depth: usize, chess_move: ChessMove) {
+        if depth < MAX_PLY {
+            self.moves[depth] = Some(chess_move);
+        }
+    }
+
+    /// Clear all PV moves
+    #[allow(dead_code)]
+    pub fn clear(&mut self) {
+        self.moves = [None; MAX_PLY];
+    }
+}
 
 /// Parameters for configuring search behavior.
 #[derive(Debug, Clone, Copy)]
@@ -177,6 +252,8 @@ impl Minimax {
     /// - There's always a valid best move if timeout occurs
     /// - The engine searches for at least the minimum time
     /// - Search doesn't go beyond the maximum depth unless needed to satisfy min time
+    ///
+    /// Enhanced with PV table and history heuristic for better move ordering.
     pub fn find_best_move_iterative(
         &self,
         board: &Board2,
@@ -200,17 +277,31 @@ impl Minimax {
             return None;
         }
 
+        // Initialize PV table and history table for enhanced move ordering
+        let mut pv_table = PVTable::new();
+        let mut history_table = HistoryTable::new();
+
         let mut best_move: Option<ChessMove> = None;
         let mut depth = 1;
 
         // Iterative deepening up to max_depth
         let time_constraints = TimeConstraints::new(&start_time, params.min_search_time_ms);
         while depth <= params.max_depth {
-            let (_score, mv) =
-                self.search_depth(board, depth, &time_constraints, history, tt, metrics);
+            let (_score, mv) = self.search_depth(
+                board,
+                depth,
+                &time_constraints,
+                history,
+                tt,
+                metrics,
+                &mut history_table,
+                &pv_table,
+            );
 
             if let Some(mv) = mv {
                 best_move = Some(mv);
+                // Store the best move in PV table for next iteration
+                pv_table.set(depth as usize, mv);
             }
 
             // Stop if we've exceeded the minimum time
@@ -225,11 +316,21 @@ impl Minimax {
         // Continue searching at deeper depths if we haven't used enough time
         while start_time.elapsed().as_millis() < params.min_search_time_ms as u128 {
             depth += 1;
-            let (_score, mv) =
-                self.search_depth(board, depth, &time_constraints, history, tt, metrics);
+            let (_score, mv) = self.search_depth(
+                board,
+                depth,
+                &time_constraints,
+                history,
+                tt,
+                metrics,
+                &mut history_table,
+                &pv_table,
+            );
 
             if let Some(mv) = mv {
                 best_move = Some(mv);
+                // Store the best move in PV table for next iteration
+                pv_table.set(depth as usize, mv);
             }
 
             // If search completed very quickly, avoid infinite loop
@@ -248,6 +349,8 @@ impl Minimax {
     /// Performs a depth-limited search with time checking.
     ///
     /// Returns (score, best_move). If time limit is exceeded, returns (0, None).
+    /// Uses PV-first and history heuristic for enhanced move ordering.
+    #[allow(clippy::too_many_arguments)]
     fn search_depth(
         &self,
         board: &Board2,
@@ -256,6 +359,8 @@ impl Minimax {
         history: &mut SearchHistory,
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
+        history_table: &mut HistoryTable,
+        pv_table: &PVTable,
     ) -> (i32, Option<ChessMove>) {
         // Stop if time limit is exceeded
         if time_constraints.is_time_exceeded() {
@@ -270,8 +375,11 @@ impl Minimax {
             return (0, None);
         }
 
-        // Order moves for better alpha-beta performance
-        Self::order_moves(board, &mut move_buffer, tt);
+        // Get PV move from previous iteration for this depth
+        let pv_move = pv_table.get(depth as usize);
+
+        // Order moves with PV-first and history heuristic
+        Self::order_moves_with_history(board, &mut move_buffer, tt, history_table, pv_move);
 
         // Copy moves to avoid them being overwritten during recursive calls
         let moves: Vec<ChessMove> = move_buffer.to_vec();
@@ -296,6 +404,7 @@ impl Minimax {
                 depth,
                 &mut move_buffer,
                 time_constraints,
+                history_table,
             );
 
             // Pop position after returning
@@ -316,19 +425,21 @@ impl Minimax {
     }
 
     /// Alpha-beta search with time checking for iterative deepening.
+    /// Enhanced with history heuristic for better move ordering.
     #[allow(clippy::too_many_arguments)]
     fn alpha_beta_with_time(
         &self,
         board: &Board2,
         depth: u8,
         mut alpha: i32,
-        beta: i32,
+        mut beta: i32,
         history: &mut SearchHistory,
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
         original_depth: u8,
         move_buffer: &mut Vec<ChessMove>,
         time_constraints: &TimeConstraints,
+        history_table: &mut HistoryTable,
     ) -> i32 {
         // Check time limit at each node
         if time_constraints.is_time_exceeded() {
@@ -347,9 +458,38 @@ impl Minimax {
             return 0; // Repetition is a draw
         }
 
+        // Store original alpha for bound determination
+        let original_alpha = alpha;
+
         // Probe transposition table - use board.hash directly!
-        if let Some(entry) = tt.probe(board.hash, depth) {
-            return entry.score;
+        if let Some(entry) = tt.probe(board.hash) {
+            // Only use entry if it was searched to at least the current depth
+            if entry.depth >= depth {
+                match entry.bound {
+                    Bound::Exact => {
+                        // Exact score - can use directly
+                        return entry.score;
+                    }
+                    Bound::LowerBound => {
+                        // Score is at least this high (fail-high)
+                        if entry.score >= beta {
+                            return entry.score;
+                        }
+                        alpha = alpha.max(entry.score);
+                    }
+                    Bound::UpperBound => {
+                        // Score is at most this high (fail-low)
+                        if entry.score <= alpha {
+                            return entry.score;
+                        }
+                        beta = beta.min(entry.score);
+                    }
+                }
+                // Check for cutoff after updating alpha/beta
+                if alpha >= beta {
+                    return entry.score;
+                }
+            }
         }
 
         // Generate legal moves into the shared buffer
@@ -364,20 +504,20 @@ impl Minimax {
                 // Stalemate - return draw score
                 0
             };
-            // Store terminal position in TT
-            tt.store(board.hash, depth, score, None);
+            // Store terminal position in TT (exact score)
+            tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }
 
         // Leaf node - evaluate position
         if depth == 0 {
             let score = self.evaluator.evaluate(board);
-            tt.store(board.hash, depth, score, None);
+            tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }
 
-        // Order moves for better pruning efficiency
-        Self::order_moves(board, move_buffer, tt);
+        // Order moves with history heuristic (no PV move at internal nodes)
+        Self::order_moves_with_history(board, move_buffer, tt, history_table, None);
 
         // Copy moves to avoid them being overwritten during recursive calls
         let moves: Vec<ChessMove> = move_buffer.to_vec();
@@ -401,6 +541,7 @@ impl Minimax {
                 original_depth,
                 move_buffer,
                 time_constraints,
+                history_table,
             );
 
             // Pop position after returning
@@ -409,8 +550,20 @@ impl Minimax {
             // Beta cutoff - opponent won't allow this position
             if score >= beta {
                 metrics.beta_cutoffs += 1;
-                tt.store(board.hash, depth, beta, Some(chess_move));
-                return beta;
+
+                // Update history table for quiet moves that cause beta cutoffs
+                if !chess_move.capture {
+                    history_table.increment(&chess_move, depth);
+                }
+
+                tt.store(
+                    board.hash,
+                    depth,
+                    score,
+                    Some(chess_move),
+                    Bound::LowerBound,
+                );
+                return score;
             }
 
             // Update alpha if we found a better move
@@ -421,7 +574,13 @@ impl Minimax {
         }
 
         // Store the result in transposition table
-        tt.store(board.hash, depth, alpha, best_move);
+        // Determine bound type based on whether we improved alpha
+        let bound = if alpha > original_alpha {
+            Bound::Exact // We found a move that improved our position
+        } else {
+            Bound::UpperBound // All moves failed low
+        };
+        tt.store(board.hash, depth, alpha, best_move, bound);
 
         alpha
     }
@@ -432,7 +591,7 @@ impl Minimax {
         board: &Board2,
         depth: u8,
         mut alpha: i32,
-        beta: i32,
+        mut beta: i32,
         history: &mut SearchHistory,
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
@@ -451,9 +610,38 @@ impl Minimax {
             return 0; // Repetition is a draw
         }
 
+        // Store original alpha for bound determination
+        let original_alpha = alpha;
+
         // Probe transposition table - use board.hash directly!
-        if let Some(entry) = tt.probe(board.hash, depth) {
-            return entry.score;
+        if let Some(entry) = tt.probe(board.hash) {
+            // Only use entry if it was searched to at least the current depth
+            if entry.depth >= depth {
+                match entry.bound {
+                    Bound::Exact => {
+                        // Exact score - can use directly
+                        return entry.score;
+                    }
+                    Bound::LowerBound => {
+                        // Score is at least this high (fail-high)
+                        if entry.score >= beta {
+                            return entry.score;
+                        }
+                        alpha = alpha.max(entry.score);
+                    }
+                    Bound::UpperBound => {
+                        // Score is at most this high (fail-low)
+                        if entry.score <= alpha {
+                            return entry.score;
+                        }
+                        beta = beta.min(entry.score);
+                    }
+                }
+                // Check for cutoff after updating alpha/beta
+                if alpha >= beta {
+                    return entry.score;
+                }
+            }
         }
 
         // Generate legal moves into the shared buffer
@@ -468,15 +656,15 @@ impl Minimax {
                 // Stalemate - return draw score
                 0
             };
-            // Store terminal position in TT
-            tt.store(board.hash, depth, score, None);
+            // Store terminal position in TT (exact score)
+            tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }
 
         // Leaf node - evaluate position
         if depth == 0 {
             let score = self.evaluator.evaluate(board);
-            tt.store(board.hash, depth, score, None);
+            tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }
 
@@ -512,8 +700,14 @@ impl Minimax {
             // Beta cutoff - opponent won't allow this position
             if score >= beta {
                 metrics.beta_cutoffs += 1;
-                tt.store(board.hash, depth, beta, Some(chess_move));
-                return beta;
+                tt.store(
+                    board.hash,
+                    depth,
+                    score,
+                    Some(chess_move),
+                    Bound::LowerBound,
+                );
+                return score;
             }
 
             // Update alpha if we found a better move
@@ -524,7 +718,13 @@ impl Minimax {
         }
 
         // Store the result in transposition table
-        tt.store(board.hash, depth, alpha, best_move);
+        // Determine bound type based on whether we improved alpha
+        let bound = if alpha > original_alpha {
+            Bound::Exact // We found a move that improved our position
+        } else {
+            Bound::UpperBound // All moves failed low
+        };
+        tt.store(board.hash, depth, alpha, best_move, bound);
 
         alpha
     }
@@ -535,7 +735,7 @@ impl Minimax {
     /// This method operates in-place on the provided buffer for better performance.
     fn order_moves(board: &Board2, moves: &mut [ChessMove], tt: &mut TranspositionTable) {
         // Try to get best move from transposition table
-        if let Some(entry) = tt.probe(board.hash, 0)
+        if let Some(entry) = tt.probe(board.hash)
             && let Some(tt_best_move) = entry.best_move
         {
             // Find the TT best move in our list
@@ -550,6 +750,84 @@ impl Minimax {
 
         // No TT move found, sort all moves by priority
         moves.sort_by_key(|m| Self::move_priority(board, m));
+    }
+
+    /// Enhanced move ordering with PV-first and history heuristic.
+    ///
+    /// Priority order:
+    /// 1. PV move (from previous iteration)
+    /// 2. TT move (from transposition table)
+    /// 3. Captures sorted by MVV-LVA
+    /// 4. Quiet moves sorted by history score
+    ///
+    /// This method operates in-place on the provided buffer for better performance.
+    fn order_moves_with_history(
+        board: &Board2,
+        moves: &mut [ChessMove],
+        tt: &mut TranspositionTable,
+        history: &HistoryTable,
+        pv_move: Option<ChessMove>,
+    ) {
+        if moves.is_empty() {
+            return;
+        }
+
+        let mut priority_index = 0;
+
+        // 1. Try to place PV move first
+        if let Some(pv) = pv_move
+            && let Some(pos) = moves.iter().position(|&m| m == pv)
+        {
+            moves.swap(priority_index, pos);
+            priority_index += 1;
+        }
+
+        // 2. Try to place TT move second (if different from PV move)
+        if let Some(entry) = tt.probe(board.hash)
+            && let Some(tt_move) = entry.best_move
+            && (pv_move.is_none() || pv_move.unwrap() != tt_move)
+            && let Some(pos) = moves[priority_index..].iter().position(|&m| m == tt_move)
+        {
+            moves.swap(priority_index, priority_index + pos);
+            priority_index += 1;
+        }
+
+        // 3. Sort remaining moves by combined priority
+        // (captures by MVV-LVA, quiet moves by history score)
+        moves[priority_index..]
+            .sort_by_key(|m| Self::move_priority_with_history(board, m, history));
+    }
+
+    /// Calculate move priority combining MVV-LVA for captures and history for quiet moves.
+    fn move_priority_with_history(
+        board: &Board2,
+        chess_move: &ChessMove,
+        history: &HistoryTable,
+    ) -> i32 {
+        if chess_move.capture {
+            // Captures: use MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+            let victim_value = if let Some((_, piece)) = board.piece_on(chess_move.to as u8) {
+                Self::piece_value(piece)
+            } else {
+                100 // En passant captures a pawn
+            };
+
+            let attacker_value = if let Some((_, piece)) = board.piece_on(chess_move.from as u8) {
+                Self::piece_value(piece)
+            } else {
+                0 // Shouldn't happen
+            };
+
+            // MVV-LVA: High victim value, low attacker value = best
+            // victim_value * 10 - attacker_value ensures victim is primary factor
+            // Negative for descending sort order
+            // Add large offset to ensure captures are always before quiet moves
+            -(victim_value * 10 - attacker_value + 100_000)
+        } else {
+            // Quiet moves: use history heuristic score
+            // Negative to sort in descending order (higher history score = better)
+            -history.get(chess_move)
+        }
     }
 
     fn move_priority(board: &Board2, chess_move: &ChessMove) -> i32 {
