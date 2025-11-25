@@ -1,7 +1,7 @@
 use super::{CastlingRights, Color, Piece};
 use crate::{
     attacks::database::ATTACKS_DB,
-    board::{ChessMove, ChessMoveState},
+    board::{ChessMove, ChessMoveState, utils::bitboard_from_algebraic},
     movegen::MoveGenerator,
     search::compute_hash_board2,
 };
@@ -37,20 +37,18 @@ impl Default for Board2 {
     }
 }
 
-#[allow(dead_code)]
 impl Board2 {
-    /// Creates a new, empty board state
     pub fn new_empty() -> Self {
         Self {
-            pieces: [[0u64; 6]; 2],            // No pieces
-            occ: [0u64; 2],                    // No occupancy
-            occ_all: 0u64,                     // No squares occupied
-            side_to_move: Color::White,        // Default to white to move
-            castling: CastlingRights::empty(), // No castling rights
-            en_passant: 64,                    // 64 = no en passant square
-            halfmove_clock: 0,                 // Halfmove clock at 0
-            king_sq: [64; 2],                  // No kings on board
-            hash: 0u64,                        // Initial hash 0
+            pieces: [[0u64; 6]; 2],
+            occ: [0u64; 2],
+            occ_all: 0u64,
+            side_to_move: Color::White,
+            castling: CastlingRights::empty(),
+            en_passant: 64,
+            halfmove_clock: 0,
+            king_sq: [64; 2],
+            hash: 0u64,
         }
     }
 
@@ -58,20 +56,32 @@ impl Board2 {
         let mut board = Self::new_empty(); // start from empty
 
         // White pieces
-        board.pieces[Color::White as usize][Piece::Pawn as usize] = 0x0000_0000_0000_ff00;
-        board.pieces[Color::White as usize][Piece::Rook as usize] = 0x0000_0000_0000_0081;
-        board.pieces[Color::White as usize][Piece::Knight as usize] = 0x0000_0000_0000_0042;
-        board.pieces[Color::White as usize][Piece::Bishop as usize] = 0x0000_0000_0000_0024;
-        board.pieces[Color::White as usize][Piece::Queen as usize] = 0x0000_0000_0000_0008; // d1
-        board.pieces[Color::White as usize][Piece::King as usize] = 0x0000_0000_0000_0010; // e1
+        board.pieces[Color::White as usize][Piece::Pawn as usize] =
+            bitboard_from_algebraic(&["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]);
+        board.pieces[Color::White as usize][Piece::Rook as usize] =
+            bitboard_from_algebraic(&["a1", "h1"]);
+        board.pieces[Color::White as usize][Piece::Knight as usize] =
+            bitboard_from_algebraic(&["b1", "g1"]);
+        board.pieces[Color::White as usize][Piece::Bishop as usize] =
+            bitboard_from_algebraic(&["c1", "f1"]);
+        board.pieces[Color::White as usize][Piece::Queen as usize] =
+            bitboard_from_algebraic(&["d1"]);
+        board.pieces[Color::White as usize][Piece::King as usize] =
+            bitboard_from_algebraic(&["e1"]);
 
         // Black pieces
-        board.pieces[Color::Black as usize][Piece::Pawn as usize] = 0x00ff_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::Rook as usize] = 0x8100_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::Knight as usize] = 0x4200_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::Bishop as usize] = 0x2400_0000_0000_0000;
-        board.pieces[Color::Black as usize][Piece::Queen as usize] = 0x0800_0000_0000_0000; // d8
-        board.pieces[Color::Black as usize][Piece::King as usize] = 0x1000_0000_0000_0000; // e8
+        board.pieces[Color::Black as usize][Piece::Pawn as usize] =
+            bitboard_from_algebraic(&["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"]);
+        board.pieces[Color::Black as usize][Piece::Rook as usize] =
+            bitboard_from_algebraic(&["a8", "h8"]);
+        board.pieces[Color::Black as usize][Piece::Knight as usize] =
+            bitboard_from_algebraic(&["b8", "g8"]);
+        board.pieces[Color::Black as usize][Piece::Bishop as usize] =
+            bitboard_from_algebraic(&["c8", "f8"]);
+        board.pieces[Color::Black as usize][Piece::Queen as usize] =
+            bitboard_from_algebraic(&["d8"]);
+        board.pieces[Color::Black as usize][Piece::King as usize] =
+            bitboard_from_algebraic(&["e8"]);
 
         // Occupancy
         board.occ[Color::White as usize] =

@@ -4,6 +4,7 @@ pub mod castling;
 pub mod chess_move;
 pub mod color;
 pub mod piece;
+pub mod utils;
 
 pub use board2::Board2;
 pub use castling::CastlingRights;
