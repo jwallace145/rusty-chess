@@ -21,7 +21,7 @@ struct AiGame {
 }
 
 impl AiGame {
-    fn new(player_color: Color, ai_depth: u8) -> Self {
+    fn new(player_color: Color, ai_depth: u8, starting_board: Board2) -> Self {
         // Create search parameters with time based on depth
         // Higher depths get more time: depth * 1000ms
         let min_search_time_ms = (ai_depth as u64) * 2000;
@@ -31,7 +31,7 @@ impl AiGame {
         };
 
         Self {
-            board: Board2::new_standard(),
+            board: starting_board,
             move_history: Vec::new(),
             player_color,
             search_params,
@@ -226,6 +226,7 @@ impl AiGame {
 
                 let state = self.board.apply_move(best_move);
                 self.move_history.push(state);
+                println!("FEN: {}", self.board.to_fen());
             }
             None => {
                 println!("AI has no legal moves!");
@@ -250,6 +251,7 @@ impl AiGame {
         // Apply the move
         let state = self.board.apply_move(chess_move);
         self.move_history.push(state);
+        println!("FEN: {}", self.board.to_fen());
 
         Ok(())
     }
@@ -411,14 +413,67 @@ fn get_ai_depth() -> u8 {
     }
 }
 
+fn get_starting_position() -> Board2 {
+    loop {
+        print!("Use custom starting position? (y/n): ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+
+        match input.trim().to_lowercase().as_str() {
+            "n" | "no" => return Board2::new_standard(),
+            "y" | "yes" => {
+                return get_fen_position();
+            }
+            _ => println!("Invalid choice. Please enter 'y' for yes or 'n' for no."),
+        }
+    }
+}
+
+fn get_fen_position() -> Board2 {
+    loop {
+        println!("Enter FEN string (or 'cancel' to use standard position):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+
+        let input = input.trim();
+
+        if input.to_lowercase() == "cancel" {
+            println!("Using standard starting position.");
+            return Board2::new_standard();
+        }
+
+        // Try to parse the FEN
+        let board = Board2::from_fen(input);
+
+        // Validate the board has kings for both sides
+        if board.king_sq[0] >= 64 || board.king_sq[1] >= 64 {
+            println!("Invalid FEN: Both sides must have a king. Please try again.");
+            continue;
+        }
+
+        println!("FEN loaded successfully!");
+        return board;
+    }
+}
+
 fn main() {
     let player_color = get_player_color();
     let ai_depth = get_ai_depth();
+    let starting_board = get_starting_position();
 
-    let mut game = AiGame::new(player_color, ai_depth);
+    let mut game = AiGame::new(player_color, ai_depth, starting_board);
 
-    // If player chose black, AI makes the first move
-    if player_color == Color::Black {
+    // If player chose black and it's white's turn, AI makes the first move
+    if player_color == Color::Black && game.board.side_to_move == Color::White {
         println!("\nAI will make the first move as White.\n");
     }
 
