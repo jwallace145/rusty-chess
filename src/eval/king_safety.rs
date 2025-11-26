@@ -7,8 +7,8 @@ pub struct KingSafetyEvaluator;
 
 impl BoardEvaluator for KingSafetyEvaluator {
     fn evaluate(&self, board: &Board2) -> i32 {
-        let white_king_safety = Self::king_safety(board, Color::White);
-        let black_king_safety = Self::king_safety(board, Color::Black);
+        let white_king_safety: i32 = Self::king_safety(board, Color::White);
+        let black_king_safety: i32 = Self::king_safety(board, Color::Black);
 
         white_king_safety - black_king_safety
     }
@@ -33,6 +33,9 @@ impl KingSafetyEvaluator {
 
         // 4. Enemy proximity
         score -= Self::enemy_piece_pressure(board, color, king_pos) * 6;
+
+        // 5. Enemy attack pressure
+        score -= Self::attackers_to_king_zone(board, color, king_pos) * 4;
 
         score
     }
@@ -125,5 +128,51 @@ impl KingSafetyEvaluator {
         }
 
         threats
+    }
+
+    fn attackers_to_king_zone(board: &Board2, color: Color, king_sq: u8) -> i32 {
+        let enemy: Color = color.opponent();
+        let king_zone: Vec<u8> = Self::king_zone(king_sq);
+
+        let mut score = 0;
+
+        for &sq in &king_zone {
+            let mut attackers = board.attackers_to(sq, enemy);
+
+            // Iterate through attacker squares in the bitboard
+            while attackers != 0 {
+                let attacker_sq = attackers.trailing_zeros() as u8;
+                if let Some((_, p)) = board.piece_on(attacker_sq) {
+                    score += match p {
+                        Piece::Pawn => 10,
+                        Piece::Knight => 30,
+                        Piece::Bishop => 30,
+                        Piece::Rook => 50,
+                        Piece::Queen => 90,
+                        _ => 0,
+                    };
+                }
+                attackers &= attackers - 1; // Clear the least significant bit
+            }
+        }
+
+        score
+    }
+
+    fn king_zone(king_sq: u8) -> Vec<u8> {
+        let mut zone = Vec::with_capacity(9);
+        let f = (king_sq % 8) as i32;
+        let r = (king_sq / 8) as i32;
+
+        for df in -1..=1 {
+            for dr in -1..=1 {
+                let nf = f + df;
+                let nr = r + dr;
+                if (0..8).contains(&nf) && (0..8).contains(&nr) {
+                    zone.push((nr * 8 + nf) as u8);
+                }
+            }
+        }
+        zone
     }
 }

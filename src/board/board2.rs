@@ -53,7 +53,7 @@ impl Board2 {
     }
 
     pub fn new_standard() -> Self {
-        let mut board = Self::new_empty(); // start from empty
+        let mut board: Board2 = Self::new_empty(); // start from empty
 
         // White pieces
         board.pieces[Color::White as usize][Piece::Pawn as usize] =
@@ -106,6 +106,100 @@ impl Board2 {
         // Halfmove clock
         board.halfmove_clock = 0;
 
+        board.hash = compute_hash_board2(&board);
+
+        board
+    }
+
+    pub fn from_fen(fen: &str) -> Self {
+        use super::castling::Side;
+
+        let mut board = Self::new_empty();
+        let parts: Vec<&str> = fen.split_whitespace().collect();
+
+        // Part 1: Piece placement (ranks 8 to 1, separated by '/')
+        if let Some(placement) = parts.first() {
+            let ranks: Vec<&str> = placement.split('/').collect();
+            for (rank_idx, rank_str) in ranks.iter().enumerate() {
+                let rank = 7 - rank_idx; // FEN starts from rank 8 (index 7)
+                let mut file = 0;
+
+                for ch in rank_str.chars() {
+                    if let Some(digit) = ch.to_digit(10) {
+                        file += digit as usize; // Skip empty squares
+                    } else {
+                        let sq = rank * 8 + file;
+                        let (color, piece) = match ch {
+                            'P' => (Color::White, Piece::Pawn),
+                            'N' => (Color::White, Piece::Knight),
+                            'B' => (Color::White, Piece::Bishop),
+                            'R' => (Color::White, Piece::Rook),
+                            'Q' => (Color::White, Piece::Queen),
+                            'K' => (Color::White, Piece::King),
+                            'p' => (Color::Black, Piece::Pawn),
+                            'n' => (Color::Black, Piece::Knight),
+                            'b' => (Color::Black, Piece::Bishop),
+                            'r' => (Color::Black, Piece::Rook),
+                            'q' => (Color::Black, Piece::Queen),
+                            'k' => (Color::Black, Piece::King),
+                            _ => continue,
+                        };
+
+                        board.pieces[color as usize][piece as usize] |= 1u64 << sq;
+                        board.occ[color as usize] |= 1u64 << sq;
+
+                        if piece == Piece::King {
+                            board.king_sq[color as usize] = sq as u8;
+                        }
+
+                        file += 1;
+                    }
+                }
+            }
+        }
+
+        // Update combined occupancy
+        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
+
+        // Part 2: Side to move
+        if let Some(&side) = parts.get(1) {
+            board.side_to_move = match side {
+                "b" => Color::Black,
+                _ => Color::White,
+            };
+        }
+
+        // Part 3: Castling availability
+        if let Some(&castling) = parts.get(2) {
+            board.castling = CastlingRights::empty();
+            for ch in castling.chars() {
+                match ch {
+                    'K' => board.castling.add(Color::White, Side::KingSide),
+                    'Q' => board.castling.add(Color::White, Side::QueenSide),
+                    'k' => board.castling.add(Color::Black, Side::KingSide),
+                    'q' => board.castling.add(Color::Black, Side::QueenSide),
+                    _ => {}
+                }
+            }
+        }
+
+        // Part 4: En passant target square
+        if let Some(&ep) = parts.get(3)
+            && ep != "-"
+            && ep.len() == 2
+        {
+            let bytes = ep.as_bytes();
+            let file = bytes[0] - b'a';
+            let rank = bytes[1] - b'1';
+            board.en_passant = rank * 8 + file;
+        }
+
+        // Part 5: Halfmove clock
+        if let Some(&halfmove) = parts.get(4) {
+            board.halfmove_clock = halfmove.parse().unwrap_or(0);
+        }
+
+        // Compute the Zobrist hash
         board.hash = compute_hash_board2(&board);
 
         board
@@ -256,6 +350,32 @@ impl Board2 {
         }
 
         false
+    }
+
+    /// Returns a bitboard of all pieces of color `by` that attack the square `sq`.
+    pub fn attackers_to(&self, sq: u8, by: Color) -> u64 {
+        let mut attackers = 0u64;
+
+        // Pawns - use opponent's attack pattern since pawns attack in opposite directions
+        attackers |=
+            self.pieces_of(by, Piece::Pawn) & self.attacks_from(Piece::Pawn, sq, by.opponent());
+
+        // Knights
+        attackers |= self.pieces_of(by, Piece::Knight) & self.attacks_from(Piece::Knight, sq, by);
+
+        // Bishops
+        attackers |= self.pieces_of(by, Piece::Bishop) & self.attacks_from(Piece::Bishop, sq, by);
+
+        // Rooks
+        attackers |= self.pieces_of(by, Piece::Rook) & self.attacks_from(Piece::Rook, sq, by);
+
+        // Queens (attack like both bishop and rook)
+        attackers |= self.pieces_of(by, Piece::Queen) & self.attacks_from(Piece::Queen, sq, by);
+
+        // King
+        attackers |= self.pieces_of(by, Piece::King) & self.attacks_from(Piece::King, sq, by);
+
+        attackers
     }
 
     /// Returns true if the given color `color` is in check

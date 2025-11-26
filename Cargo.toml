@@ -48,6 +48,10 @@ path = "src/bin/test_opening_book.rs"
 name = "test_engine_with_book"
 path = "src/bin/test_engine_with_book.rs"
 
+[[bin]]
+name = "find-best-move"
+path = "src/bin/find_best_move.rs"
+
 [[bench]]
 name = "profile"
 path = "benches/profile.rs"
