@@ -22,20 +22,20 @@ impl KingSafetyEvaluator {
 
         // 1. Castling bonus
         if board.has_castled(color) {
-            score += 40;
+            score += 10;
         }
 
         // 2. Pawn shield
-        score += Self::pawn_shield(board, color, king_pos) * 12;
+        score += Self::pawn_shield(board, color, king_pos) * 4;
 
         // 3. Open files next to king
-        score -= Self::open_file_penalty(board, king_pos) * 15;
+        score -= Self::open_file_penalty(board, king_pos) * 5;
 
         // 4. Enemy proximity
-        score -= Self::enemy_piece_pressure(board, color, king_pos) * 6;
+        score -= Self::enemy_piece_pressure(board, color, king_pos) * 2;
 
         // 5. Enemy attack pressure
-        score -= Self::attackers_to_king_zone(board, color, king_pos) * 4;
+        score -= Self::attackers_to_king_zone(board, color, king_pos);
 
         score
     }
