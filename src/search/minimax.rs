@@ -2,6 +2,7 @@ use crate::board::{Board2, ChessMove, Piece};
 use crate::eval::Evaluator;
 use crate::movegen::MoveGenerator;
 use crate::search::SearchHistory;
+use crate::search::quiescence::quiescence_search;
 use crate::transpositions::{Bound, TranspositionTable};
 use std::time::Instant;
 
@@ -509,9 +510,9 @@ impl Minimax {
             return score;
         }
 
-        // Leaf node - evaluate position
+        // Leaf node - use quiescence search to resolve tactical sequences
         if depth == 0 {
-            let score = self.evaluator.evaluate(board);
+            let score = quiescence_search(board, alpha, beta, &self.evaluator);
             tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }
@@ -661,9 +662,9 @@ impl Minimax {
             return score;
         }
 
-        // Leaf node - evaluate position
+        // Leaf node - use quiescence search to resolve tactical sequences
         if depth == 0 {
-            let score = self.evaluator.evaluate(board);
+            let score = quiescence_search(board, alpha, beta, &self.evaluator);
             tt.store(board.hash, depth, score, None, Bound::Exact);
             return score;
         }

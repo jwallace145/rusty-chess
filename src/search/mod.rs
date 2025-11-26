@@ -1,6 +1,7 @@
 mod engine;
 mod history;
 mod minimax;
+mod quiescence;
 mod zobrist;
 
 pub use engine::ChessEngine;
