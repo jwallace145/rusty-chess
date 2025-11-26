@@ -48,6 +48,7 @@ impl AiGame {
         println!("Enter moves in the format: e2,e4");
         println!("Type 'moves' to show all possible moves");
         println!("Type 'undo' to undo the last move (yours and AI's)");
+        println!("Type 'fen' to output the current position in FEN notation");
         println!("Type 'resign' to resign the game");
         println!("Type 'quit' to exit the game\n");
 
@@ -139,6 +140,9 @@ impl AiGame {
             }
             "moves" => {
                 self.print_legal_moves();
+            }
+            "fen" => {
+                println!("FEN: {}", self.board.to_fen());
             }
             _ => {
                 if let Err(e) = self.process_move(input) {

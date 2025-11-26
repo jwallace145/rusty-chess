@@ -898,6 +898,106 @@ impl Board2 {
         }
         println!("  a b c d e f g h\n");
     }
+
+    /// Convert the current board state to FEN notation
+    pub fn to_fen(&self) -> String {
+        use super::castling::Side;
+
+        let mut fen = String::new();
+
+        // 1. Piece placement (from rank 8 to rank 1)
+        for rank in (0..8).rev() {
+            let mut empty_count = 0;
+
+            for file in 0..8 {
+                let sq = rank * 8 + file;
+
+                if let Some((color, piece)) = self.piece_on(sq as u8) {
+                    // Flush empty square count
+                    if empty_count > 0 {
+                        fen.push_str(&empty_count.to_string());
+                        empty_count = 0;
+                    }
+
+                    let piece_char = match piece {
+                        Piece::Pawn => 'p',
+                        Piece::Knight => 'n',
+                        Piece::Bishop => 'b',
+                        Piece::Rook => 'r',
+                        Piece::Queen => 'q',
+                        Piece::King => 'k',
+                    };
+
+                    let piece_char = match color {
+                        Color::White => piece_char.to_ascii_uppercase(),
+                        Color::Black => piece_char,
+                    };
+
+                    fen.push(piece_char);
+                } else {
+                    empty_count += 1;
+                }
+            }
+
+            // Flush remaining empty squares at end of rank
+            if empty_count > 0 {
+                fen.push_str(&empty_count.to_string());
+            }
+
+            // Add rank separator (except for the last rank)
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        // 2. Active color
+        fen.push(' ');
+        fen.push(match self.side_to_move {
+            Color::White => 'w',
+            Color::Black => 'b',
+        });
+
+        // 3. Castling availability
+        fen.push(' ');
+        let mut castling_str = String::new();
+        if self.castling.has(Color::White, Side::KingSide) {
+            castling_str.push('K');
+        }
+        if self.castling.has(Color::White, Side::QueenSide) {
+            castling_str.push('Q');
+        }
+        if self.castling.has(Color::Black, Side::KingSide) {
+            castling_str.push('k');
+        }
+        if self.castling.has(Color::Black, Side::QueenSide) {
+            castling_str.push('q');
+        }
+        if castling_str.is_empty() {
+            fen.push('-');
+        } else {
+            fen.push_str(&castling_str);
+        }
+
+        // 4. En passant target square
+        fen.push(' ');
+        if self.en_passant < 64 {
+            let file = self.en_passant % 8;
+            let rank = self.en_passant / 8;
+            fen.push((b'a' + file) as char);
+            fen.push((b'1' + rank) as char);
+        } else {
+            fen.push('-');
+        }
+
+        // 5. Halfmove clock
+        fen.push(' ');
+        fen.push_str(&self.halfmove_clock.to_string());
+
+        // 6. Fullmove number (not tracked, default to 1)
+        fen.push_str(" 1");
+
+        fen
+    }
 }
 
 fn parse_square(s: &str) -> Result<usize, String> {
@@ -1993,5 +2093,50 @@ mod tests {
             "Hash mismatch after promotion. Incremental: {:#x}, Expected: {:#x}",
             board.hash, expected_hash
         );
+    }
+
+    #[test]
+    fn test_to_fen_starting_position() {
+        let board = Board2::new_standard();
+        let fen = board.to_fen();
+        assert_eq!(
+            fen, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "Starting position FEN should match standard"
+        );
+    }
+
+    #[test]
+    fn test_to_fen_after_e4() {
+        use crate::board::chess_move::ChessMoveType;
+
+        let mut board = Board2::new_standard();
+
+        // Play e2e4
+        let mv = ChessMove {
+            from: 12,
+            to: 28,
+            capture: false,
+            move_type: ChessMoveType::Normal,
+        };
+        board.make_move(mv);
+
+        let fen = board.to_fen();
+        assert_eq!(
+            fen, "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "FEN after e4 should show en passant square"
+        );
+    }
+
+    #[test]
+    fn test_to_fen_roundtrip() {
+        // Test that from_fen(to_fen(board)) produces equivalent board
+        let original = Board2::new_standard();
+        let fen = original.to_fen();
+        let restored = Board2::from_fen(&fen);
+
+        assert_eq!(original.occ_all, restored.occ_all);
+        assert_eq!(original.side_to_move, restored.side_to_move);
+        assert_eq!(original.en_passant, restored.en_passant);
+        assert_eq!(original.halfmove_clock, restored.halfmove_clock);
     }
 }
