@@ -1,6 +1,7 @@
 mod bishop_pair;
 mod central_control;
 pub mod evaluator;
+mod fork;
 mod king_safety;
 mod knight_outpost;
 mod line_pressure;

@@ -2,11 +2,11 @@ use crate::{
     board::{Board2, Color},
     eval::{
         bishop_pair::BishopPairEvaluator, central_control::CentralControlEvaluator,
-        king_safety::KingSafetyEvaluator, knight_outpost::KnightOutpostEvaluator,
-        line_pressure::LinePressureEvaluator, material::MaterialEvaluator,
-        mobility::MobilityEvaluator, pawn_structure::PawnStructureEvaluator,
-        position::PositionEvaluator, rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator,
-        threat::ThreatEvaluator,
+        fork::ForkEvaluator, king_safety::KingSafetyEvaluator,
+        knight_outpost::KnightOutpostEvaluator, line_pressure::LinePressureEvaluator,
+        material::MaterialEvaluator, mobility::MobilityEvaluator,
+        pawn_structure::PawnStructureEvaluator, position::PositionEvaluator,
+        rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator, threat::ThreatEvaluator,
     },
 };
 
@@ -61,6 +61,7 @@ impl Evaluator {
             (Box::new(CentralControlEvaluator), 1),
             (Box::new(ThreatEvaluator), 1),
             (Box::new(LinePressureEvaluator), 1),
+            (Box::new(ForkEvaluator), 1),
         ];
 
         Self { evaluators }
