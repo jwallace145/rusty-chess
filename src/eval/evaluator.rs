@@ -3,9 +3,10 @@ use crate::{
     eval::{
         bishop_pair::BishopPairEvaluator, central_control::CentralControlEvaluator,
         king_safety::KingSafetyEvaluator, knight_outpost::KnightOutpostEvaluator,
-        material::MaterialEvaluator, mobility::MobilityEvaluator,
-        pawn_structure::PawnStructureEvaluator, position::PositionEvaluator,
-        rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator, threat::ThreatEvaluator,
+        line_pressure::LinePressureEvaluator, material::MaterialEvaluator,
+        mobility::MobilityEvaluator, pawn_structure::PawnStructureEvaluator,
+        position::PositionEvaluator, rook_file_evaluator::RookFileEvaluator, tempo::TempoEvaluator,
+        threat::ThreatEvaluator,
     },
 };
 
@@ -59,6 +60,7 @@ impl Evaluator {
             (Box::new(RookFileEvaluator), 1),
             (Box::new(CentralControlEvaluator), 1),
             (Box::new(ThreatEvaluator), 1),
+            (Box::new(LinePressureEvaluator), 1),
         ];
 
         Self { evaluators }
