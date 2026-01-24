@@ -1,6 +1,7 @@
 use super::{Color, Piece};
+use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChessMoveType {
     Normal,
     Castle,
@@ -8,7 +9,7 @@ pub enum ChessMoveType {
     Promotion(Piece),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChessMove {
     pub from: usize,
     pub to: usize,
@@ -62,5 +63,32 @@ impl ChessMove {
         }
 
         uci
+    }
+
+    /// Converts a ChessMove to standard algebraic notation for castling (O-O or O-O-O)
+    /// Returns None if this is not a castling move
+    pub fn to_castling_notation(&self) -> Option<&'static str> {
+        if self.move_type != ChessMoveType::Castle {
+            return None;
+        }
+
+        // Kingside castling: king moves to g-file (file 6)
+        // Queenside castling: king moves to c-file (file 2)
+        let to_file = self.to % 8;
+        match to_file {
+            6 => Some("O-O"),   // Kingside
+            2 => Some("O-O-O"), // Queenside
+            _ => None,
+        }
+    }
+
+    /// Returns a display-friendly string representation of the move
+    /// Uses O-O/O-O-O for castling, standard notation otherwise
+    pub fn to_display(&self) -> String {
+        if let Some(castling) = self.to_castling_notation() {
+            castling.to_string()
+        } else {
+            self.to_uci()
+        }
     }
 }

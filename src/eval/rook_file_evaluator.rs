@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -14,7 +14,7 @@ const SEMI_OPEN_FILE_BONUS: i32 = 10;
 pub struct RookFileEvaluator;
 
 impl BoardEvaluator for RookFileEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         // Iterate through white rooks
@@ -38,7 +38,7 @@ impl BoardEvaluator for RookFileEvaluator {
 }
 
 impl RookFileEvaluator {
-    fn rook_file_score(board: &Board2, sq: usize, color: Color) -> i32 {
+    fn rook_file_score(board: &Board, sq: usize, color: Color) -> i32 {
         let file = sq % 8;
         let mut has_friendly_pawn = false;
         let mut has_enemy_pawn = false;

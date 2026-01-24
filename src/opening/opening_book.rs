@@ -1,10 +1,10 @@
-use crate::board::Board2;
+use crate::board::{Board, ChessMove, ChessMoveType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 pub struct OpeningBook {
-    positions: HashMap<u64, Vec<(String, u32)>>,
+    positions: HashMap<u64, Vec<(ChessMove, u32)>>,
 }
 
 impl Default for OpeningBook {
@@ -20,13 +20,13 @@ impl OpeningBook {
         }
     }
 
-    pub fn add_move(&mut self, hash: u64, move_str: String) {
+    pub fn add_move(&mut self, hash: u64, chess_move: ChessMove) {
         let entry = self.positions.entry(hash).or_default();
 
-        if let Some((_, count)) = entry.iter_mut().find(|(m, _)| m == &move_str) {
+        if let Some((_, count)) = entry.iter_mut().find(|(m, _)| *m == chess_move) {
             *count += 1;
         } else {
-            entry.push((move_str, 1));
+            entry.push((chess_move, 1));
         }
     }
 
@@ -37,11 +37,11 @@ impl OpeningBook {
         }
     }
 
-    pub fn probe(&self, hash: u64) -> Option<&str> {
+    pub fn probe(&self, hash: u64) -> Option<ChessMove> {
         self.positions
             .get(&hash)
             .and_then(|moves| moves.first())
-            .map(|(m, _)| m.as_str())
+            .map(|(m, _)| *m)
     }
 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
@@ -51,275 +51,190 @@ impl OpeningBook {
 
     pub fn load(path: &str) -> std::io::Result<Self> {
         let data = std::fs::read(path)?;
-        Ok(bincode::deserialize(&data).unwrap())
+        bincode::deserialize(&data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 }
 
-// Build book manually from common openings
+/// Build an opening book featuring the London System for White.
+///
+/// The London System is characterized by:
+/// 1. d4 - Queen's pawn opening
+/// 2. Bf4 - Early bishop development (the signature London move)
+/// 3. e3 - Supporting the bishop
+/// 4. Nf3 - Knight development
+/// 5. c3 - Solid pawn structure
+/// 6. Bd3 - Bishop to d3
+/// 7. Nbd2 - Knight to d2
+/// 8. O-O - Castling kingside
 pub fn create_basic_book() -> OpeningBook {
     let mut book = OpeningBook::new();
-    let mut board = Board2::new_standard();
 
-    // Helper to add a move sequence
-    let add_line = |book: &mut OpeningBook, board: &mut Board2, moves: &[&str]| {
-        *board = Board2::new_standard();
-        for move_uci in moves {
-            let hash = board.hash;
-            book.add_move(hash, move_uci.to_string());
-            let m = board.parse_uci(move_uci).unwrap();
-            board.apply_move(m);
-        }
+    // Helper to create a normal move
+    let mv = |from: usize, to: usize| ChessMove {
+        from,
+        to,
+        capture: false,
+        move_type: ChessMoveType::Normal,
     };
 
-    // ========================================
-    // WHITE OPENINGS
-    // ========================================
+    // Helper to create a capture move
+    let capture = |from: usize, to: usize| ChessMove {
+        from,
+        to,
+        capture: true,
+        move_type: ChessMoveType::Normal,
+    };
 
-    // Main line: 1.e4
-    add_line(&mut book, &mut board, &["e2e4"]);
+    // Square indices (rank * 8 + file, where a1 = 0)
+    // Files: a=0, b=1, c=2, d=3, e=4, f=5, g=6, h=7
+    // Ranks: 1=0, 2=8, 3=16, 4=24, 5=32, 6=40, 7=48, 8=56
+    const D2: usize = 11; // d2
+    const D4: usize = 27; // d4
+    const C1: usize = 2; // c1 (dark-squared bishop)
+    const F4: usize = 29; // f4
+    const E2: usize = 12; // e2
+    const E3: usize = 20; // e3
+    const G1: usize = 6; // g1 (knight)
+    const F3: usize = 21; // f3
+    const F1: usize = 5; // f1 (light-squared bishop)
+    const D3: usize = 19; // d3
 
-    // Main line: 1.d4
-    add_line(&mut book, &mut board, &["d2d4"]);
+    // Start from the starting position
+    let mut board = Board::startpos();
 
-    // ========================================
-    // AGAINST 1.e4 (AS BLACK)
-    // ========================================
+    // === Move 1: d2d4 (London System starts with d4) ===
+    // From starting position, White plays d4
+    book.add_move(board.hash, mv(D2, D4));
 
-    // Italian Game (Giuoco Piano)
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4",
-        ],
-    );
+    // Make the move to get the next position
+    board.make_move(mv(D2, D4));
 
-    // Ruy Lopez - Main Line (Closed)
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7", "f1e1",
-            "b7b5", "a4b3", "d7d6", "c2c3", "e8g8",
-        ],
-    );
+    // === After 1. d4, handle common Black responses ===
+    // Black's common responses: d5, Nf6, e6, f5 (Dutch), c5, etc.
 
-    // Ruy Lopez - Berlin Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "g8f6", "e1g1", "f6e4", "d2d4", "e4d6", "b5c6",
-            "d7c6", "d4e5", "d6f5",
-        ],
-    );
+    // We need to add White's response (Bf4) for various Black moves
+    // Let's handle the most common: 1...d5, 1...Nf6, 1...e6
 
-    // Sicilian Defense - Open Sicilian (Najdorf)
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "a7a6", "c1e3",
-            "e7e5", "d4b3",
-        ],
-    );
+    // --- 1...d5 (most common) ---
+    let mut board_d5 = board;
+    let d5_move = mv(51, 35); // d7-d5
+    board_d5.make_move(d5_move);
+    // After 1. d4 d5, White plays 2. Bf4
+    book.add_move(board_d5.hash, mv(C1, F4));
 
-    // Sicilian Defense - Dragon Variation
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "g7g6", "c1e3",
-            "f8g7", "f2f3", "e8g8",
-        ],
-    );
+    // Continue the London: 1. d4 d5 2. Bf4
+    let mut board_d5_bf4 = board_d5;
+    board_d5_bf4.make_move(mv(C1, F4));
 
-    // French Defense - Advance Variation
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "e7e6", "d2d4", "d7d5", "e4e5", "c7c5", "c2c3", "b8c6", "g1f3", "d8b6", "a2a3",
-        ],
-    );
+    // After 2. Bf4, common Black moves: Nf6, e6, c5, Bf5
+    // --- 1. d4 d5 2. Bf4 Nf6 ---
+    let mut board_d5_bf4_nf6 = board_d5_bf4;
+    board_d5_bf4_nf6.make_move(mv(62, 45)); // Ng8-f6
+    book.add_move(board_d5_bf4_nf6.hash, mv(E2, E3)); // 3. e3
 
-    // French Defense - Classical
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "e7e6", "d2d4", "d7d5", "b1c3", "g8f6", "c1g5", "f8e7", "e4e5", "f6d7", "g5e7",
-            "d8e7",
-        ],
-    );
+    // Continue: 1. d4 d5 2. Bf4 Nf6 3. e3
+    let mut board_line1 = board_d5_bf4_nf6;
+    board_line1.make_move(mv(E2, E3));
+    // After 3. e3, Black plays e6 or c5 typically
+    // 3...e6
+    let mut board_line1_e6 = board_line1;
+    board_line1_e6.make_move(mv(52, 44)); // e7-e6
+    book.add_move(board_line1_e6.hash, mv(G1, F3)); // 4. Nf3
 
-    // Caro-Kann Defense - Classical
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "c7c6", "d2d4", "d7d5", "b1c3", "d5e4", "c3e4", "c8f5", "e4g3", "f5g6", "h2h4",
-            "h7h6",
-        ],
-    );
+    // Continue: 4. Nf3
+    let mut board_line1_nf3 = board_line1_e6;
+    board_line1_nf3.make_move(mv(G1, F3));
+    // 4...Bd6 or Be7
+    let mut board_line1_bd6 = board_line1_nf3;
+    board_line1_bd6.make_move(mv(61, 43)); // Bf8-d6
+    book.add_move(board_line1_bd6.hash, mv(F1, D3)); // 5. Bd3
 
-    // Caro-Kann Defense - Advance
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "c7c6", "d2d4", "d7d5", "e4e5", "c8f5", "g1f3", "e7e6", "f1e2", "c6c5", "e1g1",
-        ],
-    );
+    // --- 1. d4 d5 2. Bf4 e6 ---
+    let mut board_d5_bf4_e6 = board_d5_bf4;
+    board_d5_bf4_e6.make_move(mv(52, 44)); // e7-e6
+    book.add_move(board_d5_bf4_e6.hash, mv(E2, E3)); // 3. e3
 
-    // Scandinavian Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "d7d5", "e4d5", "d8d5", "b1c3", "d5a5", "d2d4", "g8f6", "g1f3", "c7c6",
-        ],
-    );
+    // --- 1. d4 d5 2. Bf4 c5 ---
+    let mut board_d5_bf4_c5 = board_d5_bf4;
+    board_d5_bf4_c5.make_move(mv(50, 34)); // c7-c5
+    book.add_move(board_d5_bf4_c5.hash, mv(E2, E3)); // 3. e3
 
-    // Pirc Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "d7d6", "d2d4", "g8f6", "b1c3", "g7g6", "g1f3", "f8g7", "f1e2", "e8g8", "e1g1",
-        ],
-    );
+    // --- 1. d4 d5 2. Bf4 Bf5 (mirror) ---
+    let mut board_d5_bf4_bf5 = board_d5_bf4;
+    board_d5_bf4_bf5.make_move(mv(58, 37)); // Bc8-f5
+    book.add_move(board_d5_bf4_bf5.hash, mv(E2, E3)); // 3. e3
 
-    // Modern Defense - Main Line
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "g7g6", "d2d4", "f8g7", "b1c3", "d7d6", "c1e3", "g8f6", "d1d2", "e8g8",
-        ],
-    );
+    // --- 1...Nf6 (Indian Defense setup) ---
+    let mut board_nf6 = board;
+    board_nf6.make_move(mv(62, 45)); // Ng8-f6
+    // After 1. d4 Nf6, White plays 2. Bf4
+    book.add_move(board_nf6.hash, mv(C1, F4));
 
-    // Modern Defense - Solid setup
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "e2e4", "g7g6", "d2d4", "f8g7", "b1c3", "d7d6", "g1f3", "g8f6", "f1e2", "e8g8",
-        ],
-    );
+    // Continue: 1. d4 Nf6 2. Bf4
+    let mut board_nf6_bf4 = board_nf6;
+    board_nf6_bf4.make_move(mv(C1, F4));
 
-    // ========================================
-    // AGAINST 1.d4 (AS BLACK)
-    // ========================================
+    // After 2. Bf4, Black plays d5, e6, g6, etc.
+    // --- 1. d4 Nf6 2. Bf4 d5 ---
+    let mut board_nf6_bf4_d5 = board_nf6_bf4;
+    board_nf6_bf4_d5.make_move(mv(51, 35)); // d7-d5
+    book.add_move(board_nf6_bf4_d5.hash, mv(E2, E3)); // 3. e3
 
-    // Queen's Gambit Declined - Orthodox
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "d7d5", "c2c4", "e7e6", "b1c3", "g8f6", "c1g5", "f8e7", "e2e3", "e8g8", "g1f3",
-            "b8d7", "a1c1",
-        ],
-    );
+    // --- 1. d4 Nf6 2. Bf4 e6 ---
+    let mut board_nf6_bf4_e6 = board_nf6_bf4;
+    board_nf6_bf4_e6.make_move(mv(52, 44)); // e7-e6
+    book.add_move(board_nf6_bf4_e6.hash, mv(E2, E3)); // 3. e3
 
-    // Queen's Gambit Accepted
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "d7d5", "c2c4", "d5c4", "g1f3", "g8f6", "e2e3", "e7e6", "f1c4", "c7c5", "e1g1",
-            "a7a6",
-        ],
-    );
+    // --- 1. d4 Nf6 2. Bf4 g6 (King's Indian style) ---
+    let mut board_nf6_bf4_g6 = board_nf6_bf4;
+    board_nf6_bf4_g6.make_move(mv(54, 46)); // g7-g6
+    book.add_move(board_nf6_bf4_g6.hash, mv(G1, F3)); // 3. Nf3
 
-    // Slav Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "d7d5", "c2c4", "c7c6", "g1f3", "g8f6", "b1c3", "d5c4", "a2a4", "c8f5", "e2e3",
-        ],
-    );
+    // --- 1...e6 (can transpose to QGD or French-like) ---
+    let mut board_e6 = board;
+    board_e6.make_move(mv(52, 44)); // e7-e6
+    book.add_move(board_e6.hash, mv(C1, F4)); // 2. Bf4 (London style)
 
-    // King's Indian Defense - Classical
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6", "g1f3", "e8g8", "f1e2",
-            "e7e5", "e1g1",
-        ],
-    );
+    // --- 1...f5 (Dutch Defense) - still play Bf4! ---
+    let mut board_f5 = board;
+    board_f5.make_move(mv(53, 37)); // f7-f5
+    book.add_move(board_f5.hash, mv(C1, F4)); // 2. Bf4
 
-    // Nimzo-Indian Defense - Classical
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4", "d1c2", "e8g8", "a2a3", "b4c3", "c2c3",
-        ],
-    );
+    // --- 1...c5 (Benoni-like) ---
+    let mut board_c5 = board;
+    board_c5.make_move(mv(50, 34)); // c7-c5
+    book.add_move(board_c5.hash, mv(E2, E3)); // 2. e3 (more solid, or could play d5)
 
-    // Queen's Indian Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6", "g2g3", "c8a6", "b2b3", "f8b4", "c1d2",
-            "b4e7",
-        ],
-    );
+    // --- 1...g6 (Modern Defense) ---
+    let mut board_g6 = board;
+    board_g6.make_move(mv(54, 46)); // g7-g6
+    book.add_move(board_g6.hash, mv(C1, F4)); // 2. Bf4
 
-    // Grunfeld Defense
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "d7d5", "c4d5", "f6d5", "e2e4", "d5c3", "b2c3",
-            "f8g7",
-        ],
-    );
+    // Add a few more depth in the main line
+    // Main line: 1. d4 d5 2. Bf4 Nf6 3. e3 e6 4. Nf3 Bd6 5. Bd3
+    let mut main_line = board_line1_bd6;
+    main_line.make_move(mv(F1, D3)); // 5. Bd3
 
-    // ========================================
-    // ALTERNATIVE WHITE OPENINGS
-    // ========================================
+    // After 5. Bd3, if Black plays Bxf4
+    let mut main_line_bxf4 = main_line;
+    main_line_bxf4.make_move(capture(43, 29)); // Bd6xf4
+    book.add_move(main_line_bxf4.hash, capture(E3, F4)); // 6. exf4 (recapture)
 
-    // English Opening - Symmetrical
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "c2c4", "c7c5", "b1c3", "b8c6", "g2g3", "g7g6", "f1g2", "f8g7", "g1f3",
-        ],
-    );
+    // If Black castles instead
+    let mut main_line_oo = main_line;
+    // Black castles kingside (e8-g8)
+    let castle_move = ChessMove {
+        from: 60, // e8
+        to: 62,   // g8
+        capture: false,
+        move_type: ChessMoveType::Castle,
+    };
+    main_line_oo.make_move(castle_move);
+    book.add_move(main_line_oo.hash, mv(G1, F3)); // 6. Nf3 if not already played
 
-    // English Opening - vs 1...e5
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "c2c4", "e7e5", "b1c3", "g8f6", "g1f3", "b8c6", "g2g3", "d7d5", "c4d5", "f6d5",
-        ],
-    );
-
-    // Reti Opening
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "g1f3", "d7d5", "c2c4", "e7e6", "g2g3", "g8f6", "f1g2", "f8e7", "e1g1", "e8g8",
-        ],
-    );
-
-    // London System
-    add_line(
-        &mut book,
-        &mut board,
-        &[
-            "d2d4", "g8f6", "g1f3", "e7e6", "c1f4", "c7c5", "e2e3", "b8c6", "b1d2", "d7d5", "c2c3",
-        ],
-    );
-
+    // Finalize the book (sort by frequency)
     book.finalize();
+
     book
 }

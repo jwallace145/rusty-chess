@@ -1,10 +1,11 @@
-use rusty_chess::board::Board2;
+use rusty_chess::board::{Board, print_board};
+use rusty_chess::eval::Evaluator;
 use rusty_chess::search::{ChessEngine, SearchParams};
 use std::env;
 use std::process;
 
 const DEFAULT_MAX_DEPTH: u8 = 5;
-const DEFAULT_MIN_SEARCH_TIME_MS: u64 = 2000;
+const DEFAULT_MIN_SEARCH_TIME_MS: u64 = 16000;
 
 fn print_usage(program_name: &str) {
     eprintln!("Usage: {} <fen> [options]", program_name);
@@ -22,7 +23,9 @@ fn print_usage(program_name: &str) {
         DEFAULT_MIN_SEARCH_TIME_MS
     );
     eprintln!("  --no-book               Disable opening book lookup");
-    eprintln!("  --book <path>           Path to opening book file (default: ./opening_book.bin)");
+    eprintln!(
+        "  --book <path>           Path to opening book file (falls back to built-in London System)"
+    );
     eprintln!("  --quiet                 Only output the best move, no statistics");
     eprintln!("  --help                  Show this help message");
     eprintln!();
@@ -157,11 +160,11 @@ fn main() {
     };
 
     // Parse the FEN and create the board
-    let board = Board2::from_fen(&config.fen);
+    let board = Board::from_fen(&config.fen);
 
     if !config.quiet {
         println!("Position:");
-        board.print();
+        print_board(&board);
         println!();
         println!("Side to move: {:?}", board.side_to_move);
         println!(
@@ -173,16 +176,14 @@ fn main() {
 
     // Create the engine
     let mut engine = if config.use_opening_book {
+        // Try to load from file first, fall back to built-in London System book
         match ChessEngine::with_opening_book(&config.opening_book_path) {
             Ok(e) => e,
             Err(_) => {
                 if !config.quiet {
-                    eprintln!(
-                        "Warning: Could not load opening book from '{}', continuing without it",
-                        config.opening_book_path
-                    );
+                    eprintln!("Note: Using built-in London System opening book");
                 }
-                ChessEngine::new()
+                ChessEngine::with_london_system()
             }
         }
     } else {
@@ -205,6 +206,57 @@ fn main() {
                 println!("{}{}", from, to);
             } else {
                 println!("Best move: {}{}", from, to);
+                if best_move.capture {
+                    println!("Move type: Capture");
+                }
+                println!();
+
+                // Show evaluation breakdown
+                let evaluator = Evaluator::new();
+
+                // Current position evaluation
+                println!("=== Current Position Evaluation ===");
+                let before_eval = evaluator.evaluate_detailed(&board);
+                println!("{}", before_eval);
+                println!();
+
+                // Position after the best move
+                let mut board_after = board;
+                board_after.make_move(best_move);
+
+                println!("=== After {}{} Evaluation ===", from, to);
+                let after_eval = evaluator.evaluate_detailed(&board_after);
+                println!("{}", after_eval);
+                println!();
+
+                // Show the delta (from the moving side's perspective)
+                println!("=== Evaluation Change ===");
+                let delta = after_eval.total - before_eval.total;
+                // For White moving: positive delta = White gained
+                // For Black moving: negative delta = Black gained (position worse for White)
+                let side_moved = board.side_to_move;
+                let improvement = match side_moved {
+                    rusty_chess::board::Color::White => delta, // White wants position to become more positive
+                    rusty_chess::board::Color::Black => -delta, // Black wants position to become more negative
+                };
+                println!(
+                    "  Position change: {:+} cp (for {:?})",
+                    improvement, side_moved
+                );
+
+                // Highlight significant changes
+                let mat_delta = after_eval.material - before_eval.material;
+                if mat_delta != 0 {
+                    println!("  Material change: {:+} cp", mat_delta);
+                }
+                let threat_delta = after_eval.threat - before_eval.threat;
+                if threat_delta.abs() >= 50 {
+                    println!("  Threat change:   {:+} cp", threat_delta);
+                }
+                let mobility_delta = after_eval.mobility - before_eval.mobility;
+                if mobility_delta.abs() >= 20 {
+                    println!("  Mobility change: {:+} cp", mobility_delta);
+                }
             }
         }
         None => {

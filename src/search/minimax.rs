@@ -1,4 +1,4 @@
-use crate::board::{Board2, ChessMove, Piece};
+use crate::board::{Board, ChessMove, Piece};
 use crate::eval::Evaluator;
 use crate::movegen::MoveGenerator;
 use crate::search::SearchHistory;
@@ -180,7 +180,7 @@ impl Minimax {
     /// Find the best move using minimax with alpha-beta pruning
     pub fn find_best_move(
         &self,
-        board: &Board2,
+        board: &Board,
         depth: u8,
         history: &mut SearchHistory,
         tt: &mut TranspositionTable,
@@ -257,7 +257,7 @@ impl Minimax {
     /// Enhanced with PV table and history heuristic for better move ordering.
     pub fn find_best_move_iterative(
         &self,
-        board: &Board2,
+        board: &Board,
         params: &SearchParams,
         history: &mut SearchHistory,
         tt: &mut TranspositionTable,
@@ -354,7 +354,7 @@ impl Minimax {
     #[allow(clippy::too_many_arguments)]
     fn search_depth(
         &self,
-        board: &Board2,
+        board: &Board,
         depth: u8,
         time_constraints: &TimeConstraints,
         history: &mut SearchHistory,
@@ -430,7 +430,7 @@ impl Minimax {
     #[allow(clippy::too_many_arguments)]
     fn alpha_beta_with_time(
         &self,
-        board: &Board2,
+        board: &Board,
         depth: u8,
         mut alpha: i32,
         mut beta: i32,
@@ -589,7 +589,7 @@ impl Minimax {
     #[allow(clippy::too_many_arguments)]
     fn alpha_beta(
         &self,
-        board: &Board2,
+        board: &Board,
         depth: u8,
         mut alpha: i32,
         mut beta: i32,
@@ -734,7 +734,7 @@ impl Minimax {
     /// Priority: TT best move first, then captures by victim value, then non-captures
     ///
     /// This method operates in-place on the provided buffer for better performance.
-    fn order_moves(board: &Board2, moves: &mut [ChessMove], tt: &mut TranspositionTable) {
+    fn order_moves(board: &Board, moves: &mut [ChessMove], tt: &mut TranspositionTable) {
         // Try to get best move from transposition table
         if let Some(entry) = tt.probe(board.hash)
             && let Some(tt_best_move) = entry.best_move
@@ -763,7 +763,7 @@ impl Minimax {
     ///
     /// This method operates in-place on the provided buffer for better performance.
     fn order_moves_with_history(
-        board: &Board2,
+        board: &Board,
         moves: &mut [ChessMove],
         tt: &mut TranspositionTable,
         history: &HistoryTable,
@@ -801,7 +801,7 @@ impl Minimax {
 
     /// Calculate move priority combining MVV-LVA for captures and history for quiet moves.
     fn move_priority_with_history(
-        board: &Board2,
+        board: &Board,
         chess_move: &ChessMove,
         history: &HistoryTable,
     ) -> i32 {
@@ -831,7 +831,7 @@ impl Minimax {
         }
     }
 
-    fn move_priority(board: &Board2, chess_move: &ChessMove) -> i32 {
+    fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
         if chess_move.capture {
             let victim_value = if let Some((_, piece)) = board.piece_on(chess_move.to as u8) {
                 Self::piece_value(piece)
@@ -877,7 +877,7 @@ mod tests {
 
     #[test]
     fn test_finds_checkmate_in_one() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up position: White King on c7, Black King on a8, White Queen on c6
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << pos("c7");
@@ -894,7 +894,7 @@ mod tests {
         board.side_to_move = Color::White;
 
         // CRITICAL: Compute the zobrist hash for the position
-        board.hash = crate::search::compute_hash_board2(&board);
+        board.hash = crate::search::compute_hash_board(&board);
 
         // Create a TT and metrics for the test
         let minimax = Minimax::new();
@@ -919,7 +919,7 @@ mod tests {
 
     #[test]
     fn test_finds_checkmate_fools_game() {
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
         board.make_move(ChessMove {
             from: pos("f2"),
             to: pos("f3"),

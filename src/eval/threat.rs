@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -19,7 +19,7 @@ impl ThreatEvaluator {
     }
 
     /// Static Exchange Evaluation for a square
-    fn see_square(board: &Board2, sq: u8, side: Color) -> i32 {
+    fn see_square(board: &Board, sq: u8, side: Color) -> i32 {
         let mut attackers = [
             board.attackers_to(sq, Color::White),
             board.attackers_to(sq, Color::Black),
@@ -79,10 +79,24 @@ impl ThreatEvaluator {
 
         if gain.is_empty() { 0 } else { gain[0] }
     }
+
+    /// Check if a piece is en prise (attacked by enemy and SEE is negative)
+    fn is_piece_en_prise(board: &Board, sq: u8, color: Color) -> bool {
+        let enemy = color.opponent();
+        let attackers = board.attackers_to(sq, enemy);
+        if attackers == 0 {
+            return false;
+        }
+        // Use SEE to determine if piece is truly en prise
+        Self::see_square(board, sq, enemy) > 0
+    }
 }
 
+/// Maximum threat score in centipawns (hard clamp)
+const MAX_THREAT_SCORE: i32 = 150;
+
 impl BoardEvaluator for ThreatEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         for &color in &[Color::White, Color::Black] {
@@ -96,13 +110,16 @@ impl BoardEvaluator for ThreatEvaluator {
                 Piece::Queen,
             ] {
                 let mut bb = board.pieces[color as usize][piece as usize];
-                let value = Self::piece_value(piece);
+                let attacker_value = Self::piece_value(piece);
 
                 while bb != 0 {
                     let sq = bb.trailing_zeros() as u8;
+                    let attacks = board.attacks_from(piece, sq, color);
 
-                    // Offensive scoring: attacks on enemy pieces
-                    let mut num_attacks = 0;
+                    // Check if the attacking piece is en prise (attacked by enemy)
+                    let attacker_is_safe = !Self::is_piece_en_prise(board, sq, color);
+
+                    // Offensive scoring: attacks on enemy pieces (with validation)
                     for &ep in &[
                         Piece::Pawn,
                         Piece::Knight,
@@ -110,31 +127,45 @@ impl BoardEvaluator for ThreatEvaluator {
                         Piece::Rook,
                         Piece::Queen,
                     ] {
+                        let target_value = Self::piece_value(ep);
                         let mut ep_bb = board.pieces[enemy_color as usize][ep as usize];
+
                         while ep_bb != 0 {
                             let ep_sq = ep_bb.trailing_zeros() as u8;
-                            let attacks = board.attacks_from(piece, sq, color);
+
                             if attacks & (1u64 << ep_sq) != 0 {
-                                num_attacks += 1;
+                                // Validate the threat:
+                                // 1. Only count if attacker is safe OR threat is profitable
+                                // 2. Only count if we're attacking something of equal/higher value
+                                //    OR our attacker is safe
+                                let threat_is_valid =
+                                    attacker_is_safe || target_value >= attacker_value;
+
+                                if threat_is_valid {
+                                    // Bonus scales with target value, smaller for low-value attackers
+                                    let bonus = (target_value / 20).min(30);
+                                    if color == Color::White {
+                                        score += bonus;
+                                    } else {
+                                        score -= bonus;
+                                    }
+                                }
                             }
                             ep_bb &= ep_bb - 1;
                         }
                     }
 
-                    // Add small bonus for attacking enemy pieces
-                    let attack_bonus = num_attacks * (value / 10);
-                    if color == Color::White {
-                        score += attack_bonus;
-                    } else {
-                        score -= attack_bonus;
-                    }
-
                     // Defensive SEE scoring: penalize hanging / overextended pieces
+                    // Only apply if piece is genuinely hanging (SEE negative)
                     let see_score = Self::see_square(board, sq, color);
-                    if color == Color::White {
-                        score += see_score; // SEE positive if beneficial
-                    } else {
-                        score -= see_score; // SEE negative if losing material
+                    if see_score < 0 {
+                        // Piece is hanging - apply penalty (capped)
+                        let penalty = see_score.max(-50);
+                        if color == Color::White {
+                            score += penalty;
+                        } else {
+                            score -= penalty;
+                        }
                     }
 
                     bb &= bb - 1;
@@ -142,13 +173,7 @@ impl BoardEvaluator for ThreatEvaluator {
             }
         }
 
-        // Small tempo bonus
-        if board.side_to_move == Color::White {
-            score += 10;
-        } else {
-            score -= 10;
-        }
-
-        score
+        // Apply hard clamp to ±MAX_THREAT_SCORE
+        score.clamp(-MAX_THREAT_SCORE, MAX_THREAT_SCORE)
     }
 }

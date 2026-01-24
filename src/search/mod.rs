@@ -7,4 +7,4 @@ mod zobrist;
 pub use engine::ChessEngine;
 pub use history::SearchHistory;
 pub use minimax::{Minimax, SearchMetrics, SearchParams};
-pub use zobrist::{CastlingRight, ZobristTable, compute_hash_board2};
+pub use zobrist::{CastlingRight, ZobristTable, compute_hash_board};

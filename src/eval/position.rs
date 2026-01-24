@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -7,7 +7,7 @@ pub struct PositionEvaluator;
 
 impl BoardEvaluator for PositionEvaluator {
     // Evaluate the positional score of a chess board state
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut white_position: i32 = 0;
         let mut black_position: i32 = 0;
 
@@ -67,7 +67,7 @@ impl PositionEvaluator {
         }
     }
 
-    fn game_phase(board: &Board2) -> i32 {
+    fn game_phase(board: &Board) -> i32 {
         const MAX_PHASE: i32 = 24; // Sum of all piece phase values
 
         let mut phase: i32 = 0;
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_evaluate_initial_position() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
         let value: i32 = PositionEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_detect_game_phase_early() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         let value: i32 = PositionEvaluator::game_phase(&board);
         let expected_value: i32 = 256;
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_detect_game_phase_mid() {
-        let mut board: Board2 = Board2::default();
+        let mut board: Board = Board::default();
 
         // Remove all Rooks by clearing their bitboards
         board.pieces[Color::White as usize][Piece::Rook as usize] = 0;
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_position_evaluator_detect_game_phase_late() {
-        let mut board: Board2 = Board2::default();
+        let mut board: Board = Board::default();
 
         // Remove all Rooks and Queens
         board.pieces[Color::White as usize][Piece::Rook as usize] = 0;

@@ -1,9 +1,9 @@
-use crate::board::{Board2, ChessMove, Color, Piece, chess_move::ChessMoveType};
+use crate::board::{Board, ChessMove, Color, Piece, chess_move::ChessMoveType};
 
 pub struct MoveGenerator;
 
 impl MoveGenerator {
-    pub fn generate_legal_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
+    pub fn generate_legal_moves(board: &Board, moves: &mut Vec<ChessMove>) {
         moves.clear();
 
         // Generate all pseudo-legal moves
@@ -29,7 +29,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_pseudo_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
+    fn generate_pseudo_moves(board: &Board, moves: &mut Vec<ChessMove>) {
         let us = board.side_to_move;
 
         // Generate moves for each piece type
@@ -41,7 +41,7 @@ impl MoveGenerator {
         Self::generate_king_moves(board, us, moves);
     }
 
-    fn generate_pawn_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_pawn_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let mut pawns = board.pieces_of(color, Piece::Pawn);
         let empty = board.empty();
         let them = board.occupancy(color.opponent());
@@ -139,7 +139,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_knight_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_knight_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let mut knights = board.pieces_of(color, Piece::Knight);
         let our_pieces = board.occupancy(color);
 
@@ -165,7 +165,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_bishop_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_bishop_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let mut bishops = board.pieces_of(color, Piece::Bishop);
         let our_pieces = board.occupancy(color);
 
@@ -191,7 +191,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_rook_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_rook_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let mut rooks = board.pieces_of(color, Piece::Rook);
         let our_pieces = board.occupancy(color);
 
@@ -217,7 +217,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_queen_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_queen_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let mut queens = board.pieces_of(color, Piece::Queen);
         let our_pieces = board.occupancy(color);
 
@@ -243,7 +243,7 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_king_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_king_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         let king_sq = board.king_sq[color as usize];
         let our_pieces = board.occupancy(color);
 
@@ -268,7 +268,7 @@ impl MoveGenerator {
         Self::generate_castling_moves(board, color, moves);
     }
 
-    fn generate_castling_moves(board: &Board2, color: Color, moves: &mut Vec<ChessMove>) {
+    fn generate_castling_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
         use crate::board::castling::Side;
 
         match color {
@@ -368,13 +368,13 @@ impl MoveGenerator {
         }
     }
 
-    pub fn is_checkmate(board: &Board2) -> bool {
+    pub fn is_checkmate(board: &Board) -> bool {
         let mut legal_moves = Vec::with_capacity(128);
         Self::generate_legal_moves(board, &mut legal_moves);
         legal_moves.is_empty() && board.in_check(board.side_to_move)
     }
 
-    pub fn is_stalemate(board: &Board2) -> bool {
+    pub fn is_stalemate(board: &Board) -> bool {
         let mut legal_moves = Vec::with_capacity(128);
         Self::generate_legal_moves(board, &mut legal_moves);
         legal_moves.is_empty() && !board.in_check(board.side_to_move)
@@ -384,12 +384,12 @@ impl MoveGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::board2::Board2;
+    use crate::board::Board;
 
     #[test]
     fn test_simple_pawn_moves() {
         // Test basic pawn move generation
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White pawn on e2
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 12; // e2
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn test_no_moves_in_checkmate() {
         // Create a simple checkmate position
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White king in corner
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 0; // a1
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn test_king_cannot_move_into_check() {
         // King can't move into check
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White king in center
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 28; // e4
@@ -482,7 +482,7 @@ mod tests {
     #[test]
     fn test_pinned_piece_cannot_move() {
         // A pinned piece cannot move if it exposes the king
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White king on e1
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1

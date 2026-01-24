@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -32,7 +32,7 @@ impl ForkEvaluator {
     }
 
     /// Evaluate fork potential for one side
-    fn evaluate_side(board: &Board2, color: Color) -> i32 {
+    fn evaluate_side(board: &Board, color: Color) -> i32 {
         let mut score = 0;
         let enemy = color.opponent();
         let enemy_pieces = board.occ[enemy as usize];
@@ -75,7 +75,7 @@ impl ForkEvaluator {
 
     /// Calculate the score for a fork based on the attacked pieces
     #[inline]
-    fn score_fork(board: &Board2, attacked_enemies: u64, attacker_value: i32, enemy: Color) -> i32 {
+    fn score_fork(board: &Board, attacked_enemies: u64, attacker_value: i32, enemy: Color) -> i32 {
         let mut fork_score = FORK_BASE_BONUS;
         let mut highest_value = 0;
         let mut second_highest_value = 0;
@@ -137,7 +137,7 @@ impl ForkEvaluator {
 }
 
 impl BoardEvaluator for ForkEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_score = Self::evaluate_side(board, Color::White);
         let black_score = Self::evaluate_side(board, Color::Black);
         white_score - black_score

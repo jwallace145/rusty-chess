@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -9,7 +9,7 @@ const SUPPORTED_BONUS: i32 = 10; // extra if supported by pawn
 pub struct KnightOutpostEvaluator;
 
 impl BoardEvaluator for KnightOutpostEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         // Iterate through white knights
@@ -33,7 +33,7 @@ impl BoardEvaluator for KnightOutpostEvaluator {
 }
 
 impl KnightOutpostEvaluator {
-    fn evaluate_knight(board: &Board2, sq: usize, color: Color) -> i32 {
+    fn evaluate_knight(board: &Board, sq: usize, color: Color) -> i32 {
         if !Self::is_outpost(board, sq, color) {
             return 0;
         }
@@ -50,7 +50,7 @@ impl KnightOutpostEvaluator {
     }
 
     /// Outpost = cannot be attacked by enemy pawns
-    fn is_outpost(board: &Board2, sq: usize, color: Color) -> bool {
+    fn is_outpost(board: &Board, sq: usize, color: Color) -> bool {
         let file = sq % 8;
         let rank = sq / 8;
 
@@ -86,7 +86,7 @@ impl KnightOutpostEvaluator {
     }
 
     /// Checks if a friendly pawn supports this knight
-    fn is_supported_by_pawn(board: &Board2, sq: usize, color: Color) -> bool {
+    fn is_supported_by_pawn(board: &Board, sq: usize, color: Color) -> bool {
         let file = sq % 8;
         let rank = sq / 8;
 

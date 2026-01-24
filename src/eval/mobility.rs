@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -8,7 +8,7 @@ const MOBILITY_WEIGHT: i32 = 6;
 pub struct MobilityEvaluator;
 
 impl BoardEvaluator for MobilityEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_mobility: i32 = Self::count_mobility(board, Color::White);
         let black_mobility: i32 = Self::count_mobility(board, Color::Black);
 
@@ -18,7 +18,7 @@ impl BoardEvaluator for MobilityEvaluator {
 
 impl MobilityEvaluator {
     /// Count total pseudo-legal moves for all pieces
-    fn count_mobility(board: &Board2, color: Color) -> i32 {
+    fn count_mobility(board: &Board, color: Color) -> i32 {
         let mut total = 0;
         let enemy_or_empty = !board.occupancy(color);
 
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_starting_position_mobility() {
-        let board = Board2::new_standard();
+        let board = Board::startpos();
         let score = MobilityEvaluator.evaluate(&board);
 
         // At the starting position, both sides have equal mobility
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_white_advantage_mobility() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Place white pieces with more mobility
         board.pieces[Color::White as usize][Piece::Queen as usize] = 1u64 << 27; // d4
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_black_advantage_mobility() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Place black pieces with more mobility
         board.pieces[Color::Black as usize][Piece::Queen as usize] = 1u64 << 27; // d4
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_mobility_counts_unique_squares() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Place two white rooks that can move to overlapping squares
         board.pieces[Color::White as usize][Piece::Rook as usize] = (1u64 << 0) | (1u64 << 7); // a1 and h1
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_pawn_mobility() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Place a white pawn in starting position
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 8; // a2
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_knight_mobility() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Place a white knight in the center
         board.pieces[Color::White as usize][Piece::Knight as usize] = 1u64 << 27; // d4

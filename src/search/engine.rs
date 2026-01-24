@@ -1,4 +1,4 @@
-use crate::board::{Board2, ChessMove};
+use crate::board::{Board, ChessMove};
 use crate::opening::OpeningBook;
 use crate::search::{Minimax, SearchHistory, SearchMetrics, SearchParams};
 use crate::transpositions::TranspositionTable;
@@ -44,6 +44,18 @@ impl ChessEngine {
         })
     }
 
+    /// Creates a new ChessEngine with the built-in London System opening book.
+    pub fn with_london_system() -> Self {
+        use crate::opening::create_basic_book;
+        Self {
+            minimax: Minimax::new(),
+            tt: TranspositionTable::default(),
+            last_search_metrics: None,
+            opening_book: Some(create_basic_book()),
+            use_opening_book: true,
+        }
+    }
+
     /// Sets the opening book for this engine. If None, the opening book is disabled.
     pub fn set_opening_book(&mut self, book: Option<OpeningBook>) {
         self.opening_book = book;
@@ -55,21 +67,17 @@ impl ChessEngine {
         self.use_opening_book = enabled && self.opening_book.is_some();
     }
 
-    pub fn find_best_move(&mut self, board: &Board2, depth: u8) -> Option<ChessMove> {
-        // Check opening book first if enabled
+    pub fn find_best_move(&mut self, board: &Board, depth: u8) -> Option<ChessMove> {
+        // Check opening book first
         if self.use_opening_book
             && let Some(ref book) = self.opening_book
-            && let Some(uci_move) = book.probe(board.hash)
+            && let Some(book_move) = book.probe(board.hash)
         {
-            // Try to parse and validate the UCI move
-            if let Ok(chess_move) = board.parse_uci(uci_move) {
-                return Some(chess_move);
-            } else {
-                eprintln!("Warning: Opening book returned invalid move: {}", uci_move);
-            }
+            println!("Opening book move: {}", book_move.to_uci());
+            return Some(book_move);
         }
 
-        // Fall back to minimax search
+        // Use minimax search
         let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
 
@@ -100,23 +108,19 @@ impl ChessEngine {
     /// The best move found, or None if no legal moves exist
     pub fn find_best_move_iterative(
         &mut self,
-        board: &Board2,
+        board: &Board,
         params: &SearchParams,
     ) -> Option<ChessMove> {
-        // Check opening book first if enabled
+        // Check opening book first
         if self.use_opening_book
             && let Some(ref book) = self.opening_book
-            && let Some(uci_move) = book.probe(board.hash)
+            && let Some(book_move) = book.probe(board.hash)
         {
-            // Try to parse and validate the UCI move
-            if let Ok(chess_move) = board.parse_uci(uci_move) {
-                return Some(chess_move);
-            } else {
-                eprintln!("Warning: Opening book returned invalid move: {}", uci_move);
-            }
+            println!("Opening book move: {}", book_move.to_uci());
+            return Some(book_move);
         }
 
-        // Fall back to iterative deepening search
+        // Use iterative deepening search
         let mut history = SearchHistory::new();
         let mut metrics = SearchMetrics::new();
 

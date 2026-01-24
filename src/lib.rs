@@ -1,6 +1,7 @@
 pub mod attacks;
 pub mod board;
 pub mod eval;
+pub mod fen;
 pub mod game;
 pub mod metrics;
 pub mod movegen;

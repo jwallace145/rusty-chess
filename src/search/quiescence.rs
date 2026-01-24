@@ -1,9 +1,9 @@
-use crate::board::{Board2, ChessMove, Color, Piece, chess_move::ChessMoveType};
+use crate::board::{Board, ChessMove, Color, Piece, chess_move::ChessMoveType};
 use crate::eval::Evaluator;
 
 /// Generates noisy moves: captures, pawn promotions, and en passant.
 /// These are the only moves searched in quiescence search to resolve tactical sequences.
-pub fn generate_noisy_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
+pub fn generate_noisy_moves(board: &Board, moves: &mut Vec<ChessMove>) {
     moves.clear();
 
     let us = board.side_to_move;
@@ -32,7 +32,7 @@ pub fn generate_noisy_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
 }
 
 /// Generate pawn captures, promotions (including non-capture promotions), and en passant
-fn generate_pawn_noisy_moves(board: &Board2, color: Color, them: u64, moves: &mut Vec<ChessMove>) {
+fn generate_pawn_noisy_moves(board: &Board, color: Color, them: u64, moves: &mut Vec<ChessMove>) {
     let mut pawns = board.pieces_of(color, Piece::Pawn);
     let empty = board.empty();
 
@@ -108,7 +108,7 @@ fn generate_pawn_noisy_moves(board: &Board2, color: Color, them: u64, moves: &mu
 
 /// Generate captures for a given piece type (knight, bishop, rook, queen)
 fn generate_piece_captures(
-    board: &Board2,
+    board: &Board,
     color: Color,
     them: u64,
     piece: Piece,
@@ -138,7 +138,7 @@ fn generate_piece_captures(
 }
 
 /// Generate king captures
-fn generate_king_captures(board: &Board2, color: Color, them: u64, moves: &mut Vec<ChessMove>) {
+fn generate_king_captures(board: &Board, color: Color, them: u64, moves: &mut Vec<ChessMove>) {
     let king_sq = board.king_sq[color as usize];
     let attacks = board.attacks_from(Piece::King, king_sq, color);
     let mut captures = attacks & them;
@@ -157,7 +157,7 @@ fn generate_king_captures(board: &Board2, color: Color, them: u64, moves: &mut V
 }
 
 /// Filter out illegal moves that leave the king in check
-fn filter_illegal_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
+fn filter_illegal_moves(board: &Board, moves: &mut Vec<ChessMove>) {
     let mut i = 0;
     while i < moves.len() {
         let mv = moves[i];
@@ -175,7 +175,7 @@ fn filter_illegal_moves(board: &Board2, moves: &mut Vec<ChessMove>) {
 
 /// Order noisy moves by MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
 /// This improves alpha-beta pruning efficiency in quiescence search.
-fn order_noisy_moves(board: &Board2, moves: &mut [ChessMove]) {
+fn order_noisy_moves(board: &Board, moves: &mut [ChessMove]) {
     moves.sort_by_key(|m| {
         // Get victim value
         let victim_value = if m.capture {
@@ -229,7 +229,7 @@ fn piece_value(piece: Piece) -> i32 {
 ///
 /// # Returns
 /// The evaluation score from the perspective of the side to move
-pub fn quiescence_search(board: &Board2, mut alpha: i32, beta: i32, evaluator: &Evaluator) -> i32 {
+pub fn quiescence_search(board: &Board, mut alpha: i32, beta: i32, evaluator: &Evaluator) -> i32 {
     // Stand pat: evaluate the current position
     let stand_pat = evaluator.evaluate(board);
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_generate_noisy_moves_captures() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White pawn on d4, black pawn on e5
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 27; // d4
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_generate_noisy_moves_promotion() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White pawn on e7 (about to promote)
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 52; // e7
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn test_quiescence_search_quiet_position() {
         // In a quiet position with no captures, quiescence should return stand_pat
-        let board = Board2::new_standard();
+        let board = Board::startpos();
         let evaluator = Evaluator::new();
 
         let score = quiescence_search(&board, i32::MIN + 1, i32::MAX, &evaluator);
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_quiescence_search_winning_capture() {
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // White has a queen that can capture a hanging black queen
         board.pieces[Color::White as usize][Piece::Queen as usize] = 1u64 << 27; // d4

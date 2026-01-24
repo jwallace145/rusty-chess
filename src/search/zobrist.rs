@@ -150,10 +150,10 @@ impl ZobristTable {
     }
 }
 
-/// Compute hash from scratch for a Board2 position.
+/// Compute hash from scratch for a Board position.
 /// Use this only for initialization or validation.
 /// For move updates, use incremental XOR operations.
-pub fn compute_hash_board2(board: &crate::board::Board2) -> u64 {
+pub fn compute_hash_board(board: &crate::board::Board) -> u64 {
     use crate::board::{Color, Piece};
     let table = ZobristTable::get();
     let mut hash = 0u64;

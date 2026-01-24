@@ -1,9 +1,9 @@
-use crate::board::{Board2, ChessMove, ChessMoveState, Color, Piece};
+use crate::board::{Board, ChessMove, ChessMoveState, Color, Piece};
 use crate::movegen::MoveGenerator;
 use std::io::{self, Write};
 
 pub struct Game {
-    board: Board2,
+    board: Board,
     move_history: Vec<ChessMoveState>,
 }
 
@@ -16,7 +16,7 @@ impl Default for Game {
 impl Game {
     pub fn new() -> Self {
         Self {
-            board: Board2::default(),
+            board: Board::default(),
             move_history: Vec::new(),
         }
     }
@@ -174,7 +174,7 @@ impl Game {
     }
 }
 
-fn print_board(board: &Board2) {
+fn print_board(board: &Board) {
     // Unicode chess symbols
     fn unicode_symbol(piece: Piece, color: Color) -> char {
         match (piece, color) {

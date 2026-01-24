@@ -1,13 +1,13 @@
-use super::{CastlingRights, Color, Piece};
+use super::{CastlingRights, ChessMove, ChessMoveState, ChessMoveType, Color, Piece};
 use crate::{
     attacks::database::ATTACKS_DB,
-    board::{ChessMove, ChessMoveState, utils::bitboard_from_algebraic},
+    fen::{FENParser, ParsedFEN, board_fen},
     movegen::MoveGenerator,
-    search::compute_hash_board2,
+    search::{CastlingRight, ZobristTable, compute_hash_board},
 };
 
 #[derive(Copy, Clone)]
-pub struct Board2 {
+pub struct Board {
     // Pieces (represented as 64-bit Bitboards)
     // One for each type of piece and color (12 total)
     pub pieces: [[u64; 6]; 2], // [color][piece]
@@ -31,13 +31,8 @@ pub struct Board2 {
     pub hash: u64,
 }
 
-impl Default for Board2 {
-    fn default() -> Self {
-        Self::new_standard()
-    }
-}
-
-impl Board2 {
+impl Board {
+    /// Create an empty Chess board
     pub fn new_empty() -> Self {
         Self {
             pieces: [[0u64; 6]; 2],
@@ -52,107 +47,30 @@ impl Board2 {
         }
     }
 
-    pub fn new_standard() -> Self {
-        let mut board: Board2 = Self::new_empty(); // start from empty
-
-        // White pieces
-        board.pieces[Color::White as usize][Piece::Pawn as usize] =
-            bitboard_from_algebraic(&["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]);
-        board.pieces[Color::White as usize][Piece::Rook as usize] =
-            bitboard_from_algebraic(&["a1", "h1"]);
-        board.pieces[Color::White as usize][Piece::Knight as usize] =
-            bitboard_from_algebraic(&["b1", "g1"]);
-        board.pieces[Color::White as usize][Piece::Bishop as usize] =
-            bitboard_from_algebraic(&["c1", "f1"]);
-        board.pieces[Color::White as usize][Piece::Queen as usize] =
-            bitboard_from_algebraic(&["d1"]);
-        board.pieces[Color::White as usize][Piece::King as usize] =
-            bitboard_from_algebraic(&["e1"]);
-
-        // Black pieces
-        board.pieces[Color::Black as usize][Piece::Pawn as usize] =
-            bitboard_from_algebraic(&["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"]);
-        board.pieces[Color::Black as usize][Piece::Rook as usize] =
-            bitboard_from_algebraic(&["a8", "h8"]);
-        board.pieces[Color::Black as usize][Piece::Knight as usize] =
-            bitboard_from_algebraic(&["b8", "g8"]);
-        board.pieces[Color::Black as usize][Piece::Bishop as usize] =
-            bitboard_from_algebraic(&["c8", "f8"]);
-        board.pieces[Color::Black as usize][Piece::Queen as usize] =
-            bitboard_from_algebraic(&["d8"]);
-        board.pieces[Color::Black as usize][Piece::King as usize] =
-            bitboard_from_algebraic(&["e8"]);
-
-        // Occupancy
-        board.occ[Color::White as usize] =
-            board.pieces[Color::White as usize].iter().copied().sum();
-        board.occ[Color::Black as usize] =
-            board.pieces[Color::Black as usize].iter().copied().sum();
-        board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
-
-        // Kings' positions
-        board.king_sq[Color::White as usize] = 4; // e1
-        board.king_sq[Color::Black as usize] = 60; // e8
-
-        // Castling rights (all allowed at start)
-        board.castling = CastlingRights::full();
-
-        // Side to move
-        board.side_to_move = Color::White;
-
-        // No en passant
-        board.en_passant = 64;
-
-        // Halfmove clock
-        board.halfmove_clock = 0;
-
-        board.hash = compute_hash_board2(&board);
-
-        board
+    /// Create a Chess board in standard starting position
+    pub fn startpos() -> Self {
+        Self::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     }
 
+    /// Create a Chess board from FEN (Forsyth–Edwards Notation)
     pub fn from_fen(fen: &str) -> Self {
-        use super::castling::Side;
+        let parsed: ParsedFEN = FENParser::parse(fen).expect("Invalid FEN string");
 
-        let mut board = Self::new_empty();
-        let parts: Vec<&str> = fen.split_whitespace().collect();
+        let mut board: Board = Self::new_empty();
 
-        // Part 1: Piece placement (ranks 8 to 1, separated by '/')
-        if let Some(placement) = parts.first() {
-            let ranks: Vec<&str> = placement.split('/').collect();
-            for (rank_idx, rank_str) in ranks.iter().enumerate() {
-                let rank = 7 - rank_idx; // FEN starts from rank 8 (index 7)
-                let mut file = 0;
+        // Set pieces from parsed board
+        for rank in 0..8 {
+            for file in 0..8 {
+                if let Some(colored_piece) = parsed.board[rank][file] {
+                    let sq: usize = rank * 8 + file;
+                    let color: Color = colored_piece.color;
+                    let piece: Piece = colored_piece.piece;
 
-                for ch in rank_str.chars() {
-                    if let Some(digit) = ch.to_digit(10) {
-                        file += digit as usize; // Skip empty squares
-                    } else {
-                        let sq = rank * 8 + file;
-                        let (color, piece) = match ch {
-                            'P' => (Color::White, Piece::Pawn),
-                            'N' => (Color::White, Piece::Knight),
-                            'B' => (Color::White, Piece::Bishop),
-                            'R' => (Color::White, Piece::Rook),
-                            'Q' => (Color::White, Piece::Queen),
-                            'K' => (Color::White, Piece::King),
-                            'p' => (Color::Black, Piece::Pawn),
-                            'n' => (Color::Black, Piece::Knight),
-                            'b' => (Color::Black, Piece::Bishop),
-                            'r' => (Color::Black, Piece::Rook),
-                            'q' => (Color::Black, Piece::Queen),
-                            'k' => (Color::Black, Piece::King),
-                            _ => continue,
-                        };
+                    board.pieces[color as usize][piece as usize] |= 1u64 << sq;
+                    board.occ[color as usize] |= 1u64 << sq;
 
-                        board.pieces[color as usize][piece as usize] |= 1u64 << sq;
-                        board.occ[color as usize] |= 1u64 << sq;
-
-                        if piece == Piece::King {
-                            board.king_sq[color as usize] = sq as u8;
-                        }
-
-                        file += 1;
+                    if piece == Piece::King {
+                        board.king_sq[color as usize] = sq as u8;
                     }
                 }
             }
@@ -161,46 +79,14 @@ impl Board2 {
         // Update combined occupancy
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
 
-        // Part 2: Side to move
-        if let Some(&side) = parts.get(1) {
-            board.side_to_move = match side {
-                "b" => Color::Black,
-                _ => Color::White,
-            };
-        }
-
-        // Part 3: Castling availability
-        if let Some(&castling) = parts.get(2) {
-            board.castling = CastlingRights::empty();
-            for ch in castling.chars() {
-                match ch {
-                    'K' => board.castling.add(Color::White, Side::KingSide),
-                    'Q' => board.castling.add(Color::White, Side::QueenSide),
-                    'k' => board.castling.add(Color::Black, Side::KingSide),
-                    'q' => board.castling.add(Color::Black, Side::QueenSide),
-                    _ => {}
-                }
-            }
-        }
-
-        // Part 4: En passant target square
-        if let Some(&ep) = parts.get(3)
-            && ep != "-"
-            && ep.len() == 2
-        {
-            let bytes = ep.as_bytes();
-            let file = bytes[0] - b'a';
-            let rank = bytes[1] - b'1';
-            board.en_passant = rank * 8 + file;
-        }
-
-        // Part 5: Halfmove clock
-        if let Some(&halfmove) = parts.get(4) {
-            board.halfmove_clock = halfmove.parse().unwrap_or(0);
-        }
+        // Set game state from parsed FEN
+        board.side_to_move = parsed.active_color;
+        board.castling = parsed.castling_rights;
+        board.en_passant = parsed.en_passant_square_index().unwrap_or(64);
+        board.halfmove_clock = parsed.halfmove_clock;
 
         // Compute the Zobrist hash
-        board.hash = compute_hash_board2(&board);
+        board.hash = compute_hash_board(&board);
 
         board
     }
@@ -305,51 +191,7 @@ impl Board2 {
 
     /// Returns true if the given square `sq` is attacked by the given color `by`.
     pub fn is_square_attacked(&self, sq: u8, by: Color) -> bool {
-        let sq = sq as usize;
-
-        // Pawns - use opponent's attack pattern since pawns attack in opposite directions
-        let pawn_attackers = self.pieces_of(by, Piece::Pawn)
-            & self.attacks_from(Piece::Pawn, sq as u8, by.opponent());
-        if pawn_attackers != 0 {
-            return true;
-        }
-
-        // Knights
-        let knight_attackers =
-            self.pieces_of(by, Piece::Knight) & self.attacks_from(Piece::Knight, sq as u8, by);
-        if knight_attackers != 0 {
-            return true;
-        }
-
-        // Bishops
-        let bishop_attackers =
-            self.pieces_of(by, Piece::Bishop) & self.attacks_from(Piece::Bishop, sq as u8, by);
-        if bishop_attackers != 0 {
-            return true;
-        }
-
-        // Rooks
-        let rook_attackers =
-            self.pieces_of(by, Piece::Rook) & self.attacks_from(Piece::Rook, sq as u8, by);
-        if rook_attackers != 0 {
-            return true;
-        }
-
-        // Queens
-        let queen_attackers =
-            self.pieces_of(by, Piece::Queen) & self.attacks_from(Piece::Queen, sq as u8, by);
-        if queen_attackers != 0 {
-            return true;
-        }
-
-        // King (adjacent squares only)
-        let king_attackers =
-            self.pieces_of(by, Piece::King) & self.attacks_from(Piece::King, sq as u8, by);
-        if king_attackers != 0 {
-            return true;
-        }
-
-        false
+        self.attackers_to(sq, by) != 0
     }
 
     /// Returns a bitboard of all pieces of color `by` that attack the square `sq`.
@@ -391,9 +233,6 @@ impl Board2 {
 
     // State operations
     pub fn make_move(&mut self, mv: ChessMove) -> ChessMoveState {
-        use super::chess_move::ChessMoveType;
-        use crate::search::{CastlingRight, ZobristTable};
-
         let from = mv.from as u8;
         let to = mv.to as u8;
         let from_mask = 1u64 << from;
@@ -821,206 +660,10 @@ impl Board2 {
         self.pieces[color as usize][piece as usize].count_ones()
     }
 
-    /// Parse a UCI move string (e.g., "e2e4") and return the corresponding ChessMove
-    /// if it's a legal move in the current position.
-    pub fn parse_uci(&self, uci: &str) -> Result<ChessMove, String> {
-        if uci.len() < 4 {
-            return Err(format!("Invalid UCI move: {}", uci));
-        }
-
-        let from_str = &uci[0..2];
-        let to_str = &uci[2..4];
-
-        let from = parse_square(from_str)?;
-        let to = parse_square(to_str)?;
-
-        // Generate legal moves and find matching move
-        let mut legal_moves = Vec::with_capacity(128);
-        self.generate_moves(&mut legal_moves);
-
-        legal_moves
-            .into_iter()
-            .find(|m| m.from == from && m.to == to)
-            .ok_or_else(|| format!("No legal move from {} to {}", from_str, to_str))
-    }
-
-    /// Alias for make_move - for compatibility with old Board API
-    pub fn apply_move(&mut self, chess_move: ChessMove) -> ChessMoveState {
-        self.make_move(chess_move)
-    }
-
-    /// Alias for unmake_move - for compatibility with old Board API
-    pub fn undo_move(&mut self, state: ChessMoveState) {
-        self.unmake_move(state)
-    }
-
-    /// Print the board to the console
-    pub fn print(&self) {
-        // Unicode chess symbols
-        fn unicode_symbol(piece: Piece, color: Color) -> char {
-            match (piece, color) {
-                (Piece::Pawn, Color::White) => '♙',
-                (Piece::Knight, Color::White) => '♘',
-                (Piece::Bishop, Color::White) => '♗',
-                (Piece::Rook, Color::White) => '♖',
-                (Piece::Queen, Color::White) => '♕',
-                (Piece::King, Color::White) => '♔',
-                (Piece::Pawn, Color::Black) => '♟',
-                (Piece::Knight, Color::Black) => '♞',
-                (Piece::Bishop, Color::Black) => '♝',
-                (Piece::Rook, Color::Black) => '♜',
-                (Piece::Queen, Color::Black) => '♛',
-                (Piece::King, Color::Black) => '♚',
-            }
-        }
-
-        // ANSI color codes for board squares
-        const LIGHT_SQUARE: &str = "\x1b[48;5;230m"; // beige
-        const DARK_SQUARE: &str = "\x1b[48;5;94m"; // brown
-        const RESET: &str = "\x1b[0m";
-
-        println!("\n  a b c d e f g h");
-        for rank in (0..8).rev() {
-            print!("{} ", rank + 1);
-            for file in 0..8 {
-                let sq = rank * 8 + file;
-                let is_light = (rank + file) % 2 == 1;
-                let bg_color = if is_light { LIGHT_SQUARE } else { DARK_SQUARE };
-
-                if let Some((color, piece)) = self.piece_on(sq) {
-                    let symbol = unicode_symbol(piece, color);
-                    print!("{}{} {}", bg_color, symbol, RESET);
-                } else {
-                    print!("{}  {}", bg_color, RESET);
-                }
-            }
-            println!(" {}", rank + 1);
-        }
-        println!("  a b c d e f g h\n");
-    }
-
     /// Convert the current board state to FEN notation
     pub fn to_fen(&self) -> String {
-        use super::castling::Side;
-
-        let mut fen = String::new();
-
-        // 1. Piece placement (from rank 8 to rank 1)
-        for rank in (0..8).rev() {
-            let mut empty_count = 0;
-
-            for file in 0..8 {
-                let sq = rank * 8 + file;
-
-                if let Some((color, piece)) = self.piece_on(sq as u8) {
-                    // Flush empty square count
-                    if empty_count > 0 {
-                        fen.push_str(&empty_count.to_string());
-                        empty_count = 0;
-                    }
-
-                    let piece_char = match piece {
-                        Piece::Pawn => 'p',
-                        Piece::Knight => 'n',
-                        Piece::Bishop => 'b',
-                        Piece::Rook => 'r',
-                        Piece::Queen => 'q',
-                        Piece::King => 'k',
-                    };
-
-                    let piece_char = match color {
-                        Color::White => piece_char.to_ascii_uppercase(),
-                        Color::Black => piece_char,
-                    };
-
-                    fen.push(piece_char);
-                } else {
-                    empty_count += 1;
-                }
-            }
-
-            // Flush remaining empty squares at end of rank
-            if empty_count > 0 {
-                fen.push_str(&empty_count.to_string());
-            }
-
-            // Add rank separator (except for the last rank)
-            if rank > 0 {
-                fen.push('/');
-            }
-        }
-
-        // 2. Active color
-        fen.push(' ');
-        fen.push(match self.side_to_move {
-            Color::White => 'w',
-            Color::Black => 'b',
-        });
-
-        // 3. Castling availability
-        fen.push(' ');
-        let mut castling_str = String::new();
-        if self.castling.has(Color::White, Side::KingSide) {
-            castling_str.push('K');
-        }
-        if self.castling.has(Color::White, Side::QueenSide) {
-            castling_str.push('Q');
-        }
-        if self.castling.has(Color::Black, Side::KingSide) {
-            castling_str.push('k');
-        }
-        if self.castling.has(Color::Black, Side::QueenSide) {
-            castling_str.push('q');
-        }
-        if castling_str.is_empty() {
-            fen.push('-');
-        } else {
-            fen.push_str(&castling_str);
-        }
-
-        // 4. En passant target square
-        fen.push(' ');
-        if self.en_passant < 64 {
-            let file = self.en_passant % 8;
-            let rank = self.en_passant / 8;
-            fen.push((b'a' + file) as char);
-            fen.push((b'1' + rank) as char);
-        } else {
-            fen.push('-');
-        }
-
-        // 5. Halfmove clock
-        fen.push(' ');
-        fen.push_str(&self.halfmove_clock.to_string());
-
-        // 6. Fullmove number (not tracked, default to 1)
-        fen.push_str(" 1");
-
-        fen
+        board_fen(self)
     }
-}
-
-fn parse_square(s: &str) -> Result<usize, String> {
-    if s.len() != 2 {
-        return Err(format!("Invalid square: {}", s));
-    }
-
-    let bytes = s.as_bytes();
-    let file = bytes[0];
-    let rank = bytes[1];
-
-    if !(b'a'..=b'h').contains(&file) {
-        return Err(format!("Invalid file: {}", file as char));
-    }
-
-    if !(b'1'..=b'8').contains(&rank) {
-        return Err(format!("Invalid rank: {}", rank as char));
-    }
-
-    let file_idx = (file - b'a') as usize;
-    let rank_idx = (rank - b'1') as usize;
-
-    Ok(rank_idx * 8 + file_idx)
 }
 
 #[cfg(test)]
@@ -1029,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_pieces_of() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         // Get White pieces
         let white_pawns: u64 = board.pieces_of(Color::White, Piece::Pawn);
@@ -1066,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_occupancy() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         // Assert White pieces occupied squares
         let white_pieces: u64 = board.occupancy(Color::White);
@@ -1079,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_occupied() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         // Assert starting pieces occupied squares
         let pieces: u64 = board.occupied();
@@ -1088,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_empty() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         // Assert starting position empty squares
         let empty: u64 = board.empty();
@@ -1097,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_piece_on() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         // Assert White pieces
         // White rooks on a1 (0) and h1 (7)
@@ -1151,7 +794,7 @@ mod tests {
 
     #[test]
     fn test_board_refactor_attacks_from() {
-        let board: Board2 = Board2::default();
+        let board: Board = Board::default();
 
         //
         // =====================
@@ -1254,7 +897,7 @@ mod tests {
         // =====================
         //
 
-        let empty_board: Board2 = Board2::new_empty();
+        let empty_board: Board = Board::new_empty();
 
         // Bishop on d4 (27)
         assert_eq!(
@@ -1298,7 +941,7 @@ mod tests {
     #[test]
     fn test_board_refactor_is_square_attacked() {
         // Test custom position - white queen attacking
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Queen as usize] = 1u64 << 27; // d4
         board.occ[Color::White as usize] = 1u64 << 27;
         board.occ_all = 1u64 << 27;
@@ -1318,7 +961,7 @@ mod tests {
         assert!(!board.is_square_attacked(17, Color::White)); // b3 (knight move)
 
         // Test custom position - black rook attacking
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::Rook as usize] = 1u64 << 27; // d4
         board.occ[Color::Black as usize] = 1u64 << 27;
         board.occ_all = 1u64 << 27;
@@ -1334,7 +977,7 @@ mod tests {
         assert!(!board.is_square_attacked(36, Color::Black)); // e5
 
         // Test bishop attacks
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Bishop as usize] = 1u64 << 27; // d4
         board.occ[Color::White as usize] = 1u64 << 27;
         board.occ_all = 1u64 << 27;
@@ -1350,7 +993,7 @@ mod tests {
         assert!(!board.is_square_attacked(35, Color::White)); // d5
 
         // Test knight attacks
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Knight as usize] = 1u64 << 27; // d4
         board.occ[Color::White as usize] = 1u64 << 27;
         board.occ_all = 1u64 << 27;
@@ -1370,7 +1013,7 @@ mod tests {
         assert!(!board.is_square_attacked(35, Color::White)); // d5
 
         // Test king attacks (adjacent squares)
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 28; // e4
         board.king_sq[Color::Black as usize] = 28;
         board.occ[Color::Black as usize] = 1u64 << 28;
@@ -1391,7 +1034,7 @@ mod tests {
         assert!(!board.is_square_attacked(44, Color::Black)); // e6
 
         // Test pawn attacks - white pawn
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 27; // d4
         board.occ[Color::White as usize] = 1u64 << 27;
         board.occ_all = 1u64 << 27;
@@ -1406,7 +1049,7 @@ mod tests {
         assert!(!board.is_square_attacked(19, Color::White)); // d3 (behind)
 
         // Test pawn attacks - black pawn
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::Pawn as usize] = 1u64 << 35; // d5
         board.occ[Color::Black as usize] = 1u64 << 35;
         board.occ_all = 1u64 << 35;
@@ -1424,12 +1067,12 @@ mod tests {
     #[test]
     fn test_board_refactor_in_check() {
         // Starting position - no checks
-        let board = Board2::default();
+        let board = Board::default();
         assert!(!board.in_check(Color::White));
         assert!(!board.in_check(Color::Black));
 
         // White king in check by black queen
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
         board.king_sq[Color::White as usize] = 4;
         board.pieces[Color::Black as usize][Piece::Queen as usize] = 1u64 << 12; // e2
@@ -1440,7 +1083,7 @@ mod tests {
         assert!(board.in_check(Color::White));
 
         // Black king in check by white rook
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 28; // e4 (avoiding corners)
         board.king_sq[Color::Black as usize] = 28;
         board.pieces[Color::White as usize][Piece::Rook as usize] = 1u64 << 4; // e1
@@ -1451,7 +1094,7 @@ mod tests {
         assert!(board.in_check(Color::Black));
 
         // White king in check by black bishop on diagonal
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 20; // e3
         board.king_sq[Color::White as usize] = 20;
         board.pieces[Color::Black as usize][Piece::Bishop as usize] = 1u64 << 38; // g6
@@ -1462,7 +1105,7 @@ mod tests {
         assert!(board.in_check(Color::White));
 
         // Black king in check by white knight
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 28; // e4
         board.king_sq[Color::Black as usize] = 28;
         board.pieces[Color::White as usize][Piece::Knight as usize] = 1u64 << 11; // d2
@@ -1473,7 +1116,7 @@ mod tests {
         assert!(board.in_check(Color::Black));
 
         // White king in check by black pawn
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 28; // e4
         board.king_sq[Color::White as usize] = 28;
         board.pieces[Color::Black as usize][Piece::Pawn as usize] = 1u64 << 35; // d5
@@ -1484,7 +1127,7 @@ mod tests {
         assert!(board.in_check(Color::White));
 
         // Black king NOT in check (piece blocked by another piece)
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 52; // e7
         board.king_sq[Color::Black as usize] = 52;
         board.pieces[Color::White as usize][Piece::Rook as usize] = 1u64 << 4; // e1
@@ -1496,7 +1139,7 @@ mod tests {
         assert!(!board.in_check(Color::Black));
 
         // King attacked by adjacent enemy king (unusual but valid check scenario)
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 28; // e4
         board.king_sq[Color::White as usize] = 28;
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 36; // e5
@@ -1512,7 +1155,7 @@ mod tests {
     #[test]
     fn test_board_refactor_attacks() {
         // Test that attacks() returns all squares attacked by a color
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up a simple position with a few white pieces
         // White queen on d4, white knight on b3
@@ -1620,7 +1263,7 @@ mod tests {
         );
 
         // Test with standard starting position
-        let board = Board2::new_standard();
+        let board = Board::startpos();
         let white_attacks = board.attacks(Color::White);
         let black_attacks = board.attacks(Color::Black);
 
@@ -1665,7 +1308,7 @@ mod tests {
     fn test_make_unmake_simple_move() {
         use crate::board::chess_move::ChessMoveType;
 
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up a simple position: white pawn on e2, kings far away
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 12; // e2
@@ -1712,7 +1355,7 @@ mod tests {
     fn test_make_unmake_capture() {
         use crate::board::chess_move::ChessMoveType;
 
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up position with a capture
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 27; // d4
@@ -1760,7 +1403,7 @@ mod tests {
         use crate::board::castling::Side;
         use crate::board::chess_move::ChessMoveType;
 
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up position for white kingside castling
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
@@ -1813,10 +1456,10 @@ mod tests {
     #[test]
     fn test_incremental_zobrist_hash_update() {
         use crate::board::chess_move::ChessMoveType;
-        use crate::search::compute_hash_board2;
+        use crate::search::compute_hash_board;
 
         // Test that make_move updates the hash incrementally and correctly
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
 
         // Make a move: e2e4
         let mv = ChessMove {
@@ -1829,7 +1472,7 @@ mod tests {
         board.make_move(mv);
 
         // Verify the hash matches what we'd get from a full recomputation
-        let expected_hash = compute_hash_board2(&board);
+        let expected_hash = compute_hash_board(&board);
         assert_eq!(
             board.hash, expected_hash,
             "Incremental hash update should match full recomputation after e2e4"
@@ -1846,14 +1489,14 @@ mod tests {
         board.make_move(mv2);
 
         // Verify the hash still matches
-        let expected_hash2 = compute_hash_board2(&board);
+        let expected_hash2 = compute_hash_board(&board);
         assert_eq!(
             board.hash, expected_hash2,
             "Incremental hash update should match full recomputation after e7e5"
         );
 
         // Test with a capture
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 27; // d4
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
         board.king_sq[Color::White as usize] = 4;
@@ -1864,7 +1507,7 @@ mod tests {
         board.occ[Color::Black as usize] = (1u64 << 36) | (1u64 << 60);
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
         board.side_to_move = Color::White;
-        board.hash = compute_hash_board2(&board);
+        board.hash = compute_hash_board(&board);
 
         // Capture: d4xe5
         let capture_mv = ChessMove {
@@ -1876,7 +1519,7 @@ mod tests {
 
         board.make_move(capture_mv);
 
-        let expected_hash3 = compute_hash_board2(&board);
+        let expected_hash3 = compute_hash_board(&board);
         assert_eq!(
             board.hash, expected_hash3,
             "Incremental hash update should match full recomputation after capture"
@@ -1888,7 +1531,7 @@ mod tests {
         use crate::board::chess_move::ChessMoveType;
 
         // Test that unmake_move properly restores the hash
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
         let original_hash = board.hash;
 
         // Make a move
@@ -1916,7 +1559,7 @@ mod tests {
         use crate::board::castling::Side;
         use crate::board::chess_move::ChessMoveType;
 
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
 
         // Set up position
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
@@ -1949,9 +1592,9 @@ mod tests {
 
     #[test]
     fn test_incremental_zobrist_hash() {
-        use crate::search::compute_hash_board2;
+        use crate::search::compute_hash_board;
 
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
         let mut moves = Vec::new();
 
         // Generate and play several moves, verifying hash after each
@@ -1968,7 +1611,7 @@ mod tests {
             let state = board.make_move(mv);
 
             // Compute hash from scratch
-            let expected_hash = compute_hash_board2(&board);
+            let expected_hash = compute_hash_board(&board);
 
             // Compare with incrementally updated hash
             assert_eq!(
@@ -1985,7 +1628,7 @@ mod tests {
             board.unmake_move(state);
 
             // Verify hash is restored correctly
-            let restored_hash = compute_hash_board2(&board);
+            let restored_hash = compute_hash_board(&board);
             assert_eq!(
                 board.hash, restored_hash,
                 "Hash not properly restored after unmake_move. \
@@ -1996,74 +1639,12 @@ mod tests {
     }
 
     #[test]
-    fn test_zobrist_hash_with_en_passant() {
-        use crate::search::compute_hash_board2;
-
-        let mut board = Board2::new_standard();
-
-        // Make a double pawn push to set en passant
-        let e2e4 = board.parse_uci("e2e4").unwrap();
-        board.make_move(e2e4);
-
-        // Verify en passant is set correctly in hash
-        let expected_hash = compute_hash_board2(&board);
-        assert_eq!(
-            board.hash, expected_hash,
-            "Hash mismatch with en passant. Incremental: {:#x}, Expected: {:#x}",
-            board.hash, expected_hash
-        );
-
-        // Make another move that clears en passant
-        let e7e5 = board.parse_uci("e7e5").unwrap();
-        board.make_move(e7e5);
-
-        let expected_hash = compute_hash_board2(&board);
-        assert_eq!(
-            board.hash, expected_hash,
-            "Hash mismatch after en passant cleared. Incremental: {:#x}, Expected: {:#x}",
-            board.hash, expected_hash
-        );
-    }
-
-    #[test]
-    fn test_zobrist_hash_with_castling() {
-        use crate::search::compute_hash_board2;
-
-        let mut board = Board2::new_standard();
-
-        // Set up position for castling
-        let moves = vec!["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"];
-        for move_uci in moves {
-            let mv = board.parse_uci(move_uci).unwrap();
-            board.make_move(mv);
-
-            let expected_hash = compute_hash_board2(&board);
-            assert_eq!(
-                board.hash, expected_hash,
-                "Hash mismatch after {}. Incremental: {:#x}, Expected: {:#x}",
-                move_uci, board.hash, expected_hash
-            );
-        }
-
-        // Castle kingside
-        let castle = board.parse_uci("e1g1").unwrap();
-        board.make_move(castle);
-
-        let expected_hash = compute_hash_board2(&board);
-        assert_eq!(
-            board.hash, expected_hash,
-            "Hash mismatch after castling. Incremental: {:#x}, Expected: {:#x}",
-            board.hash, expected_hash
-        );
-    }
-
-    #[test]
     fn test_zobrist_hash_with_promotion() {
         use crate::board::chess_move::ChessMoveType;
-        use crate::search::compute_hash_board2;
+        use crate::search::compute_hash_board;
 
         // Set up a position where white can promote
-        let mut board = Board2::new_empty();
+        let mut board = Board::new_empty();
         board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 48; // a7
         board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
         board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
@@ -2076,7 +1657,7 @@ mod tests {
         board.castling = CastlingRights::empty();
         board.en_passant = 64;
         board.halfmove_clock = 0;
-        board.hash = compute_hash_board2(&board);
+        board.hash = compute_hash_board(&board);
 
         // Promote pawn to queen
         let promote = ChessMove {
@@ -2087,7 +1668,7 @@ mod tests {
         };
         board.make_move(promote);
 
-        let expected_hash = compute_hash_board2(&board);
+        let expected_hash = compute_hash_board(&board);
         assert_eq!(
             board.hash, expected_hash,
             "Hash mismatch after promotion. Incremental: {:#x}, Expected: {:#x}",
@@ -2097,7 +1678,7 @@ mod tests {
 
     #[test]
     fn test_to_fen_starting_position() {
-        let board = Board2::new_standard();
+        let board = Board::startpos();
         let fen = board.to_fen();
         assert_eq!(
             fen, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -2109,7 +1690,7 @@ mod tests {
     fn test_to_fen_after_e4() {
         use crate::board::chess_move::ChessMoveType;
 
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
 
         // Play e2e4
         let mv = ChessMove {
@@ -2130,9 +1711,9 @@ mod tests {
     #[test]
     fn test_to_fen_roundtrip() {
         // Test that from_fen(to_fen(board)) produces equivalent board
-        let original = Board2::new_standard();
+        let original = Board::startpos();
         let fen = original.to_fen();
-        let restored = Board2::from_fen(&fen);
+        let restored = Board::from_fen(&fen);
 
         assert_eq!(original.occ_all, restored.occ_all);
         assert_eq!(original.side_to_move, restored.side_to_move);

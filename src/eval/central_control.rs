@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -14,7 +14,7 @@ const CENTRAL_SQUARES: [usize; 4] = [27, 28, 35, 36]; // d4=27, e4=28, d5=35, e5
 pub struct CentralControlEvaluator;
 
 impl BoardEvaluator for CentralControlEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut score = 0;
 
         for &sq in &CENTRAL_SQUARES {
@@ -31,7 +31,7 @@ impl BoardEvaluator for CentralControlEvaluator {
 
 impl CentralControlEvaluator {
     /// Returns the number of pseudo-legal moves that can attack the target square
-    fn count_control(board: &Board2, target_sq: usize, color: Color) -> u8 {
+    fn count_control(board: &Board, target_sq: usize, color: Color) -> u8 {
         let mut control_count = 0;
         let target_mask = 1u64 << target_sq;
 

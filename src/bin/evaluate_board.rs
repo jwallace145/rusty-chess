@@ -1,4 +1,4 @@
-use rusty_chess::board::{Board2, Color};
+use rusty_chess::board::{Board, Color, print_board};
 use rusty_chess::eval::{
     BoardEvaluator, bishop_pair::BishopPairEvaluator, central_control::CentralControlEvaluator,
     fork::ForkEvaluator, king_safety::KingSafetyEvaluator, knight_outpost::KnightOutpostEvaluator,
@@ -157,7 +157,7 @@ fn create_evaluators() -> Vec<NamedEvaluator> {
     ]
 }
 
-fn evaluate_board(board: &Board2) -> EvaluationResult {
+fn evaluate_board(board: &Board) -> EvaluationResult {
     let evaluators = create_evaluators();
     let mut sub_evaluations = Vec::new();
     let mut total_score: i32 = 0;
@@ -240,7 +240,7 @@ fn create_bar(score: i32) -> String {
     }
 }
 
-fn print_json(fen: &str, board: &Board2, result: &EvaluationResult) {
+fn print_json(fen: &str, board: &Board, result: &EvaluationResult) {
     let sub_evals: Vec<String> = result
         .sub_evaluations
         .iter()
@@ -280,7 +280,7 @@ fn main() {
     };
 
     // Parse the FEN and create the board
-    let board = Board2::from_fen(&config.fen);
+    let board = Board::from_fen(&config.fen);
 
     // Evaluate the board
     let result = evaluate_board(&board);
@@ -292,7 +292,7 @@ fn main() {
     } else {
         println!();
         println!("Position:");
-        board.print();
+        print_board(&board);
         println!();
         println!("Side to move: {:?}", board.side_to_move);
         println!();

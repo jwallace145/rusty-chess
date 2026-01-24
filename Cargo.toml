@@ -54,5 +54,8 @@ path = "src/bin/find_best_move.rs"
 
 [[bench]]
 name = "profile"
-path = "benches/profile.rs"
+path = "benches/find_best_move.rs"
 harness = false
+
+[dev-dependencies]
+criterion = "0.7.0"

@@ -1,21 +1,65 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, ChessMove, Color, Piece},
     eval::evaluator::BoardEvaluator,
+    movegen::MoveGenerator,
 };
 
 pub struct KingSafetyEvaluator;
 
 impl BoardEvaluator for KingSafetyEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_king_safety: i32 = Self::king_safety(board, Color::White);
         let black_king_safety: i32 = Self::king_safety(board, Color::Black);
 
-        white_king_safety - black_king_safety
+        let mut score = white_king_safety - black_king_safety;
+
+        // Boost score if side-to-move has a legal check available
+        // This rewards attacking positions and initiative
+        if Self::has_legal_check(board) {
+            // Apply 1.2x multiplier (20% boost) if we can give check
+            // The sign matters: if score favors attacker, boost it
+            match board.side_to_move {
+                Color::White => {
+                    // White to move with check available - boost White's advantage
+                    if score > 0 {
+                        score = (score * 6) / 5; // 1.2x
+                    }
+                }
+                Color::Black => {
+                    // Black to move with check available - boost Black's advantage
+                    if score < 0 {
+                        score = (score * 6) / 5; // 1.2x (more negative)
+                    }
+                }
+            }
+        }
+
+        score
     }
 }
 
 impl KingSafetyEvaluator {
-    fn king_safety(board: &Board2, color: Color) -> i32 {
+    /// Check if the side to move has any legal move that gives check
+    fn has_legal_check(board: &Board) -> bool {
+        let mut moves = Vec::with_capacity(128);
+        MoveGenerator::generate_legal_moves(board, &mut moves);
+
+        for mv in &moves {
+            if Self::move_gives_check(board, mv) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a move gives check to the opponent's king
+    fn move_gives_check(board: &Board, mv: &ChessMove) -> bool {
+        let mut board_copy = *board;
+        board_copy.make_move(*mv);
+        board_copy.in_check(board_copy.side_to_move)
+    }
+
+    fn king_safety(board: &Board, color: Color) -> i32 {
         let king_pos: u8 = board.king_square(color);
 
         let mut score: i32 = 0;
@@ -41,7 +85,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count pawns in the shield squares (3 squares in front of king)
-    fn pawn_shield(board: &Board2, color: Color, king_sq: u8) -> i32 {
+    fn pawn_shield(board: &Board, color: Color, king_sq: u8) -> i32 {
         let file = (king_sq % 8) as i32;
         let rank = (king_sq / 8) as i32;
 
@@ -70,7 +114,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Penalty for open or semi-open files next to king
-    fn open_file_penalty(board: &Board2, king_sq: u8) -> i32 {
+    fn open_file_penalty(board: &Board, king_sq: u8) -> i32 {
         let file = king_sq % 8;
 
         let mut penalty = 0;
@@ -97,7 +141,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count enemy pieces within 1 king move radius
-    fn enemy_piece_pressure(board: &Board2, color: Color, king_sq: u8) -> i32 {
+    fn enemy_piece_pressure(board: &Board, color: Color, king_sq: u8) -> i32 {
         let enemy = color.opponent();
 
         let king_file = (king_sq % 8) as i32;
@@ -130,7 +174,7 @@ impl KingSafetyEvaluator {
         threats
     }
 
-    fn attackers_to_king_zone(board: &Board2, color: Color, king_sq: u8) -> i32 {
+    fn attackers_to_king_zone(board: &Board, color: Color, king_sq: u8) -> i32 {
         let enemy: Color = color.opponent();
         let king_zone: Vec<u8> = Self::king_zone(king_sq);
 

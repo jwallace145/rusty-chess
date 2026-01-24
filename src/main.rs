@@ -1,4 +1,5 @@
-use rusty_chess::board::{Board2, ChessMove, ChessMoveState, Color};
+use rusty_chess::board::{Board, ChessMove, ChessMoveState, Color, print_board};
+use rusty_chess::eval::Evaluator;
 use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use rusty_chess::movegen::MoveGenerator;
 use rusty_chess::search::{ChessEngine, SearchParams};
@@ -10,22 +11,30 @@ enum PlayerAction {
     Resign,
 }
 
+struct ChessEngineSettings {
+    player_color: Color,
+    search_depth: u8,
+    starting_position: Board,
+}
+
 struct AiGame {
-    board: Board2,
+    board: Board,
     move_history: Vec<ChessMoveState>,
     player_color: Color,
     search_params: SearchParams,
     engine: ChessEngine,
+    evaluator: Evaluator,
     game_recorder: GameRecorder,
     move_counter: u16,
+    show_eval: bool,
 }
 
 impl AiGame {
-    fn new(player_color: Color, ai_depth: u8, starting_board: Board2) -> Self {
+    fn new(player_color: Color, ai_depth: u8, starting_board: Board) -> Self {
         // Create search parameters with time based on depth
         // Higher depths get more time: depth * 1000ms
-        let min_search_time_ms = (ai_depth as u64) * 2000;
-        let search_params = SearchParams {
+        let min_search_time_ms: u64 = (ai_depth as u64) * 2000;
+        let search_params: SearchParams = SearchParams {
             max_depth: ai_depth,
             min_search_time_ms,
         };
@@ -35,28 +44,20 @@ impl AiGame {
             move_history: Vec::new(),
             player_color,
             search_params,
-            engine: ChessEngine::with_opening_book("./opening_book.bin")
-                .expect("Failed to load opening book"),
+            engine: ChessEngine::with_london_system(),
+            evaluator: Evaluator::new(),
             game_recorder: GameRecorder::new(player_color, ai_depth),
             move_counter: 0,
+            show_eval: true, // Show evaluation by default
         }
     }
 
     fn run(&mut self) {
-        println!("Welcome to Rusty Chess - Play Against AI!");
-        println!("You are playing as {:?}", self.player_color);
-        println!("Enter moves in the format: e2,e4");
-        println!("Type 'moves' to show all possible moves");
-        println!("Type 'undo' to undo the last move (yours and AI's)");
-        println!("Type 'fen' to output the current position in FEN notation");
-        println!("Type 'resign' to resign the game");
-        println!("Type 'quit' to exit the game\n");
-
         let mut game_result = GameResult::InProgress;
         let mut player_quit = false;
 
         loop {
-            self.board.print();
+            print_board(&self.board);
 
             // Check for checkmate
             if self.is_checkmate() {
@@ -144,6 +145,17 @@ impl AiGame {
             "fen" => {
                 println!("FEN: {}", self.board.to_fen());
             }
+            "eval" => {
+                self.print_evaluation();
+            }
+            "evalon" => {
+                self.show_eval = true;
+                println!("Evaluation display enabled.");
+            }
+            "evaloff" => {
+                self.show_eval = false;
+                println!("Evaluation display disabled.");
+            }
             _ => {
                 if let Err(e) = self.process_move(input) {
                     println!("Error: {}", e);
@@ -164,6 +176,13 @@ impl AiGame {
 
         let ai_color = self.board.side_to_move;
 
+        // Capture evaluation before the move
+        let before_eval = if self.show_eval {
+            Some(self.evaluator.evaluate_detailed(&self.board))
+        } else {
+            None
+        };
+
         match self
             .engine
             .find_best_move_iterative(&self.board, &self.search_params)
@@ -173,7 +192,11 @@ impl AiGame {
                 let to_notation = square_to_notation(best_move.to);
                 let move_notation = format!("{}-{}", from_notation, to_notation);
 
-                println!("AI plays: {},{}\n", from_notation, to_notation);
+                println!("AI plays: {},{}", from_notation, to_notation);
+                if best_move.capture {
+                    println!("  (capture)");
+                }
+                println!();
 
                 // Capture AI metrics
                 if let Some(search_metrics) = self.engine.get_last_search_metrics() {
@@ -222,9 +245,75 @@ impl AiGame {
                         move_notation,
                         ai_metrics,
                     );
+
+                    // Display search statistics if eval is enabled
+                    if self.show_eval {
+                        println!("=== Search Statistics ===");
+                        println!("  Time: {:.2}s", search_metrics.search_time.as_secs_f64());
+                        println!("  Nodes: {} ({} n/s)", search_metrics.nodes_explored, nps);
+                        println!("  Depth reached: {}", search_metrics.max_depth_reached);
+                        println!("  TT hit rate: {:.1}%", tt_hit_rate);
+                        println!();
+                    }
                 }
 
-                let state = self.board.apply_move(best_move);
+                // Make the move on a copy first to get after evaluation
+                let mut board_after = self.board;
+                board_after.make_move(best_move);
+
+                // Show evaluation breakdown if enabled
+                if self.show_eval
+                    && let Some(ref before) = before_eval
+                {
+                    println!(
+                        "=== Before {},{} Evaluation ===",
+                        from_notation, to_notation
+                    );
+                    println!("{}", before);
+                    println!();
+
+                    let after_eval = self.evaluator.evaluate_detailed(&board_after);
+                    println!("=== After {},{} Evaluation ===", from_notation, to_notation);
+                    println!("{}", after_eval);
+                    println!();
+
+                    // Show the evaluation change from the AI's perspective
+                    let delta = after_eval.total - before.total;
+                    let improvement = match ai_color {
+                        Color::White => delta,
+                        Color::Black => -delta,
+                    };
+                    println!("=== Move Analysis ===");
+                    println!(
+                        "  Position change: {:+} cp (for {:?})",
+                        improvement, ai_color
+                    );
+
+                    // Highlight significant changes
+                    let mat_delta = after_eval.material - before.material;
+                    if mat_delta != 0 {
+                        println!("  Material change: {:+} cp", mat_delta);
+                    }
+                    let threat_delta = after_eval.threat - before.threat;
+                    if threat_delta.abs() >= 30 {
+                        println!("  Threat change:   {:+} cp", threat_delta);
+                    }
+                    let mobility_delta = after_eval.mobility - before.mobility;
+                    if mobility_delta.abs() >= 20 {
+                        println!("  Mobility change: {:+} cp", mobility_delta);
+                    }
+                    let king_safety_delta = after_eval.king_safety - before.king_safety;
+                    if king_safety_delta.abs() >= 30 {
+                        println!("  King safety:     {:+} cp", king_safety_delta);
+                    }
+                    let forcing_delta = after_eval.forcing_moves - before.forcing_moves;
+                    if forcing_delta.abs() >= 30 {
+                        println!("  Forcing moves:   {:+} cp", forcing_delta);
+                    }
+                    println!();
+                }
+
+                let state = self.board.make_move(best_move);
                 self.move_history.push(state);
                 println!("FEN: {}", self.board.to_fen());
             }
@@ -249,7 +338,7 @@ impl AiGame {
             .record_player_move(self.move_counter, player_color, move_notation);
 
         // Apply the move
-        let state = self.board.apply_move(chess_move);
+        let state = self.board.make_move(chess_move);
         self.move_history.push(state);
         println!("FEN: {}", self.board.to_fen());
 
@@ -282,11 +371,11 @@ impl AiGame {
 
         // Undo the last move (AI's move)
         if let Some(ai_state) = self.move_history.pop() {
-            self.board.undo_move(ai_state);
+            self.board.unmake_move(ai_state);
 
             // Also undo the player's move before that
             if let Some(player_state) = self.move_history.pop() {
-                self.board.undo_move(player_state);
+                self.board.unmake_move(player_state);
                 return true;
             }
         }
@@ -300,6 +389,25 @@ impl AiGame {
 
     fn is_stalemate(&self) -> bool {
         MoveGenerator::is_stalemate(&self.board)
+    }
+
+    fn print_evaluation(&self) {
+        println!("\n=== Position Evaluation ===");
+        let breakdown = self.evaluator.evaluate_detailed(&self.board);
+        println!("{}", breakdown);
+
+        // Interpret the score
+        let interpretation = match breakdown.total {
+            t if t > 300 => "White has a decisive advantage",
+            t if t > 150 => "White has a clear advantage",
+            t if t > 50 => "White has a slight advantage",
+            t if t > -50 => "Position is roughly equal",
+            t if t > -150 => "Black has a slight advantage",
+            t if t > -300 => "Black has a clear advantage",
+            _ => "Black has a decisive advantage",
+        };
+        println!("\n  Assessment: {}", interpretation);
+        println!();
     }
 
     fn print_legal_moves(&self) {
@@ -378,9 +486,87 @@ fn square_to_notation(square: usize) -> String {
     format!("{}{}", file_char, rank_char)
 }
 
+fn display_introduction() {
+    println!(
+        r#"
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║                                                               ║
+    ║   ♜ ♞ ♝ ♛ ♚ ♝ ♞ ♜      ____  _   _ ____ _______   __          ║
+    ║   ♟ ♟ ♟ ♟ ♟ ♟ ♟ ♟     |  _ \| | | / ___|_   _\ \ / /          ║
+    ║   . . . . . . . .     | |_) | | | \___ \ | |  \ V /           ║
+    ║   . . . . . . . .     |  _ <| |_| |___) || |   | |            ║
+    ║   . . . . . . . .     |_| \_\\___/|____/ |_|   |_|            ║
+    ║   . . . . . . . .                                             ║
+    ║   ♙ ♙ ♙ ♙ ♙ ♙ ♙ ♙       ____ _   _ _____ ____ ____            ║
+    ║   ♖ ♘ ♗ ♕ ♔ ♗ ♘ ♖      / ___| | | | ____/ ___/ ___|           ║
+    ║                       | |   | |_| |  _| \___ \___ \           ║
+    ║                       | |___|  _  | |___ ___) |__) |          ║
+    ║                        \____|_| |_|_____|____/____/           ║
+    ║                                                               ║
+    ╠═══════════════════════════════════════════════════════════════╣
+    ║                                                               ║
+    ║          A terminal chess engine written in Rust              ║
+    ║                                                               ║
+    ║    Features:                                                  ║
+    ║      - Minimax search with alpha-beta pruning                 ║
+    ║      - Quiescence search for tactical accuracy                ║
+    ║      - Opening book support                                   ║
+    ║      - Full move validation and game state tracking           ║
+    ║                                                               ║
+    ╚═══════════════════════════════════════════════════════════════╝
+"#
+    );
+}
+
+fn get_chess_engine_settings() -> ChessEngineSettings {
+    let player_color: Color = get_player_color();
+    let search_depth: u8 = get_search_depth();
+    let starting_position: Board = get_starting_position();
+
+    ChessEngineSettings {
+        player_color,
+        search_depth,
+        starting_position,
+    }
+}
+
+fn display_instructions(settings: &ChessEngineSettings) {
+    let color_str = match settings.player_color {
+        Color::White => "White",
+        Color::Black => "Black",
+    };
+
+    println!("┌─────────────────────────────────────────┐");
+    println!("│            Game Settings                │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  Player color:     {:>19}  │", color_str);
+    println!("│  AI search depth:  {:>15} ply  │", settings.search_depth);
+    println!("├─────────────────────────────────────────┤");
+    println!("│            Commands                     │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  e2,e4  - Make a move (from,to)         │");
+    println!("│  moves  - Show all legal moves          │");
+    println!("│  undo   - Undo last move pair           │");
+    println!("│  fen    - Show current FEN              │");
+    println!("│  eval   - Show position evaluation      │");
+    println!("│  evaloff- Disable eval display on moves │");
+    println!("│  evalon - Enable eval display on moves  │");
+    println!("│  resign - Resign the game               │");
+    println!("│  quit   - Exit the game                 │");
+    println!("└─────────────────────────────────────────┘");
+    println!();
+}
+
 fn get_player_color() -> Color {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│         Choose Your Color               │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  [w] White  ♔  - Move first             │");
+    println!("│  [b] Black  ♚  - AI moves first         │");
+    println!("└─────────────────────────────────────────┘");
+
     loop {
-        print!("Choose your color (w/b): ");
+        print!("  > ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -389,16 +575,33 @@ fn get_player_color() -> Color {
             .expect("Failed to read input");
 
         match input.trim().to_lowercase().as_str() {
-            "w" | "white" => return Color::White,
-            "b" | "black" => return Color::Black,
-            _ => println!("Invalid choice. Please enter 'w' for white or 'b' for black."),
+            "w" | "white" => {
+                println!("  ✓ Playing as White\n");
+                return Color::White;
+            }
+            "b" | "black" => {
+                println!("  ✓ Playing as Black\n");
+                return Color::Black;
+            }
+            _ => println!("  ✗ Invalid choice. Enter 'w' or 'b'."),
         }
     }
 }
 
-fn get_ai_depth() -> u8 {
+fn get_search_depth() -> u8 {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│         AI Difficulty (1-10)            │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  1-3   Beginner    - Fast, weak play    │");
+    println!("│  4-5   Intermediate - Balanced          │");
+    println!("│  6-7   Advanced    - Strong, slower     │");
+    println!("│  8-10  Expert      - Very strong        │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  Recommended: 5                         │");
+    println!("└─────────────────────────────────────────┘");
+
     loop {
-        print!("Choose AI difficulty (depth 1-10, recommended 5): ");
+        print!("  > ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -407,15 +610,31 @@ fn get_ai_depth() -> u8 {
             .expect("Failed to read input");
 
         match input.trim().parse::<u8>() {
-            Ok(depth) if (1..=10).contains(&depth) => return depth,
-            _ => println!("Invalid choice. Please enter a number between 1 and 10."),
+            Ok(depth) if (1..=10).contains(&depth) => {
+                let difficulty = match depth {
+                    1..=3 => "Beginner",
+                    4..=5 => "Intermediate",
+                    6..=7 => "Advanced",
+                    _ => "Expert",
+                };
+                println!("  ✓ Difficulty: {} (depth {})\n", difficulty, depth);
+                return depth;
+            }
+            _ => println!("  ✗ Invalid choice. Enter a number 1-10."),
         }
     }
 }
 
-fn get_starting_position() -> Board2 {
+fn get_starting_position() -> Board {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│        Starting Position                │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  [n] Standard - Normal chess setup      │");
+    println!("│  [y] Custom   - Load from FEN string    │");
+    println!("└─────────────────────────────────────────┘");
+
     loop {
-        print!("Use custom starting position? (y/n): ");
+        print!("  > ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -424,19 +643,33 @@ fn get_starting_position() -> Board2 {
             .expect("Failed to read input");
 
         match input.trim().to_lowercase().as_str() {
-            "n" | "no" => return Board2::new_standard(),
+            "n" | "no" => {
+                println!("  ✓ Using standard starting position\n");
+                return Board::startpos();
+            }
             "y" | "yes" => {
                 return get_fen_position();
             }
-            _ => println!("Invalid choice. Please enter 'y' for yes or 'n' for no."),
+            _ => println!("  ✗ Invalid choice. Enter 'y' or 'n'."),
         }
     }
 }
 
-fn get_fen_position() -> Board2 {
+fn get_fen_position() -> Board {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│          Enter FEN Position             │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  Enter a valid FEN string to load a     │");
+    println!("│  custom position. Type 'cancel' to      │");
+    println!("│  use the standard starting position.    │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  Example FEN (starting position):       │");
+    println!("│  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/    │");
+    println!("│  RNBQKBNR w KQkq - 0 1                  │");
+    println!("└─────────────────────────────────────────┘");
+
     loop {
-        println!("Enter FEN string (or 'cancel' to use standard position):");
-        print!("> ");
+        print!("  FEN> ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -447,33 +680,37 @@ fn get_fen_position() -> Board2 {
         let input = input.trim();
 
         if input.to_lowercase() == "cancel" {
-            println!("Using standard starting position.");
-            return Board2::new_standard();
+            println!("  ✓ Using standard starting position\n");
+            return Board::startpos();
         }
 
         // Try to parse the FEN
-        let board = Board2::from_fen(input);
+        let board = Board::from_fen(input);
 
         // Validate the board has kings for both sides
         if board.king_sq[0] >= 64 || board.king_sq[1] >= 64 {
-            println!("Invalid FEN: Both sides must have a king. Please try again.");
+            println!("  ✗ Invalid FEN: Both sides must have a king.");
             continue;
         }
 
-        println!("FEN loaded successfully!");
+        println!("  ✓ FEN loaded successfully!\n");
         return board;
     }
 }
 
 fn main() {
-    let player_color = get_player_color();
-    let ai_depth = get_ai_depth();
-    let starting_board = get_starting_position();
+    display_introduction();
+    let settings: ChessEngineSettings = get_chess_engine_settings();
+    display_instructions(&settings);
 
-    let mut game = AiGame::new(player_color, ai_depth, starting_board);
+    let mut game: AiGame = AiGame::new(
+        settings.player_color,
+        settings.search_depth,
+        settings.starting_position,
+    );
 
     // If player chose black and it's white's turn, AI makes the first move
-    if player_color == Color::Black && game.board.side_to_move == Color::White {
+    if settings.player_color == Color::Black && game.board.side_to_move == Color::White {
         println!("\nAI will make the first move as White.\n");
     }
 

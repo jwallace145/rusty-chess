@@ -1,12 +1,12 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
 pub struct MaterialEvaluator;
 
 impl BoardEvaluator for MaterialEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let mut white_material: i32 = 0;
         let mut black_material: i32 = 0;
 
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_initial_board_state() {
-        let board = Board2::new_standard();
+        let board = Board::startpos();
         let value: i32 = MaterialEvaluator.evaluate(&board);
         let expected_value: i32 = 0;
         assert_eq!(
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_white_advantage() {
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
 
         // Remove Black pieces: Rook (63), Knight (62), Pawn (55)
         board.pieces[Color::Black as usize][Piece::Rook as usize] &= !(1u64 << 63); // Remove h8 rook
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_material_evaluator_black_advantage() {
-        let mut board = Board2::new_standard();
+        let mut board = Board::startpos();
 
         // Remove White pieces: Knights (1, 6)
         board.pieces[Color::White as usize][Piece::Knight as usize] &= !(1u64 << 1); // Remove b1 knight

@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board2, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
 };
 
@@ -173,7 +173,7 @@ impl LinePressureEvaluator {
     }
 
     /// Evaluate line pressure for one side's sliding pieces
-    fn evaluate_side(board: &Board2, color: Color) -> i32 {
+    fn evaluate_side(board: &Board, color: Color) -> i32 {
         let mut score = 0;
         let enemy = color.opponent();
         let enemy_king_sq = board.king_sq[enemy as usize];
@@ -216,7 +216,7 @@ impl LinePressureEvaluator {
     /// Evaluate all rays from a single piece
     #[inline]
     fn evaluate_piece_rays(
-        board: &Board2,
+        board: &Board,
         sq: usize,
         directions: &[usize],
         ctx: &RayEvalContext,
@@ -358,7 +358,7 @@ impl LinePressureEvaluator {
 }
 
 impl BoardEvaluator for LinePressureEvaluator {
-    fn evaluate(&self, board: &Board2) -> i32 {
+    fn evaluate(&self, board: &Board) -> i32 {
         let white_score = Self::evaluate_side(board, Color::White);
         let black_score = Self::evaluate_side(board, Color::Black);
         white_score - black_score
