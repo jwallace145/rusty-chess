@@ -23,4 +23,4 @@
 
 ## Notes
 <!-- Breaking changes, follow-ups, or anything reviewers should know -->
-<!-- Link issues if relevant (e.g. Closes #123) -->
+<!-- Link issues if relevant -->
