@@ -4,10 +4,32 @@ use std::{
     io::{self, Write},
 };
 
+/// Opening book options for when the AI plays as White.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum WhiteOpeningBook {
+    #[default]
+    None,
+    LondonSystem,
+}
+
+/// Opening book options for when the AI plays as Black.
+/// Currently no opening books are implemented for Black,
+/// but this enum makes it easy to add them in the future.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum BlackOpeningBook {
+    #[default]
+    None,
+    // Future opening books can be added here, e.g.:
+    // Sicilian,
+    // KingsIndian,
+}
+
 pub struct ChessEngineSettings {
     pub player_color: Color,
     pub search_depth: u8,
     pub starting_position: Board,
+    pub white_opening_book: WhiteOpeningBook,
+    pub black_opening_book: BlackOpeningBook,
 }
 
 #[derive(Clone, Default)]
@@ -22,11 +44,14 @@ pub fn get_chess_engine_settings() -> ChessEngineSettings {
     let player_color: Color = get_player_color();
     let search_depth: u8 = get_search_depth();
     let starting_position: Board = get_starting_position();
+    let (white_opening_book, black_opening_book) = get_opening_book_settings(player_color);
 
     ChessEngineSettings {
         player_color,
         search_depth,
         starting_position,
+        white_opening_book,
+        black_opening_book,
     }
 }
 
@@ -168,6 +193,84 @@ fn get_fen_position() -> Board {
 
         println!("  ✓ FEN loaded successfully!\n");
         return board;
+    }
+}
+
+fn get_opening_book_settings(player_color: Color) -> (WhiteOpeningBook, BlackOpeningBook) {
+    // Determine which color the AI is playing
+    let ai_color = match player_color {
+        Color::White => Color::Black,
+        Color::Black => Color::White,
+    };
+
+    match ai_color {
+        Color::White => {
+            let white_book = get_white_opening_book();
+            (white_book, BlackOpeningBook::None)
+        }
+        Color::Black => {
+            let black_book = get_black_opening_book();
+            (WhiteOpeningBook::None, black_book)
+        }
+    }
+}
+
+fn get_white_opening_book() -> WhiteOpeningBook {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│      AI Opening Book (White)            │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  [n] None         - No opening book     │");
+    println!("│  [l] London System - d4, Bf4, e3 setup  │");
+    println!("└─────────────────────────────────────────┘");
+
+    loop {
+        print!("  > ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+
+        match input.trim().to_lowercase().as_str() {
+            "n" | "none" => {
+                println!("  ✓ No opening book selected\n");
+                return WhiteOpeningBook::None;
+            }
+            "l" | "london" => {
+                println!("  ✓ London System opening book selected\n");
+                return WhiteOpeningBook::LondonSystem;
+            }
+            _ => println!("  ✗ Invalid choice. Enter 'n' or 'l'."),
+        }
+    }
+}
+
+fn get_black_opening_book() -> BlackOpeningBook {
+    println!("┌─────────────────────────────────────────┐");
+    println!("│      AI Opening Book (Black)            │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│  [n] None - No opening book             │");
+    println!("│                                         │");
+    println!("│  (More opening books coming soon!)      │");
+    println!("└─────────────────────────────────────────┘");
+
+    loop {
+        print!("  > ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+
+        match input.trim().to_lowercase().as_str() {
+            "n" | "none" => {
+                println!("  ✓ No opening book selected\n");
+                return BlackOpeningBook::None;
+            }
+            _ => println!("  ✗ Invalid choice. Enter 'n'."),
+        }
     }
 }
 
