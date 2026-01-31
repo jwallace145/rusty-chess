@@ -48,12 +48,6 @@ jobs:
             @semantic-release/git \
             @semantic-release/github
 
-      # Optional: ensure HTTPS remote with token
-      - name: Set Git remote URL for push
-        if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
-        run: |
-          git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}
-
       # Run semantic-release
       - name: Run semantic-release
         if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
