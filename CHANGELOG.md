@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/jwallace145/rusty-chess/compare/v1.0.0...v1.1.0) (2026-01-31)
+
+
+### Features
+
+* update release automation bot ([73f0980](https://github.com/jwallace145/rusty-chess/commit/73f09801b0d1bd10725ded3e47b47ee47ddde953))
+
 # 1.0.0 (2026-01-31)
 
 
