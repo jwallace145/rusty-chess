@@ -1,0 +1,80 @@
+# ==========================
+# Pull Request Status Checks
+# ==========================
+
+# This workflow contains a suite a simple validations to be
+# performed on every pull request to the release branch to ensure
+# the code is properly formatted, linted, and tested to maintain
+# a high bar for code quality and contributions.
+
+name: PR Status Checks
+
+# Only target pull requests to the release branch (main)
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rust-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        tool: [fmt, clippy, check, test, audit]
+
+    steps:
+      # 1️⃣ Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2️⃣ Install Rust and required components
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      # 3️⃣ Cache dependencies for faster builds
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # 4️⃣ Run the tool corresponding to the matrix job
+      - name: Run ${{ matrix.tool }}
+        run: |
+          echo "=== Starting ${{ matrix.tool }} check ==="
+          start_time=$(date +%s)
+
+          if [ "${{ matrix.tool }}" = "fmt" ]; then
+            echo "Checking code formatting with cargo fmt..."
+            cargo fmt --all -- --check
+          elif [ "${{ matrix.tool }}" = "clippy" ]; then
+            echo "Linting code with cargo clippy..."
+            cargo clippy --all-targets --all-features -- -D warnings
+          elif [ "${{ matrix.tool }}" = "check" ]; then
+            echo "Checking compilation with cargo check..."
+            cargo check --all-targets --all-features
+          elif [ "${{ matrix.tool }}" = "test" ]; then
+            echo "Running unit tests..."
+            cargo test --lib --release --quiet
+          elif [ "${{ matrix.tool }}" = "audit" ]; then
+            echo "Auditing dependencies with cargo audit..."
+            command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit
+            cargo audit
+          fi
+
+          end_time=$(date +%s)
+          elapsed=$((end_time - start_time))
+          echo "=== Finished ${{ matrix.tool }} in $elapsed seconds ==="
