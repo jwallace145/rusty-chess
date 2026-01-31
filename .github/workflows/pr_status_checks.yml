@@ -16,6 +16,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   rust-checks:
     runs-on: ubuntu-latest
