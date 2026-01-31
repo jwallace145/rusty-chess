@@ -47,7 +47,7 @@ repos:
         language: system
         pass_filenames: false
         files: Cargo\.(toml|lock)$
-        stages: [commit]
+        stages: [pre-commit]
 
   # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -79,5 +79,5 @@ repos:
       - id: check-case-conflict
 
 # Configuration
-default_stages: [commit]
+default_stages: [pre-commit]
 fail_fast: false

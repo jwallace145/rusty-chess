@@ -1,10 +1,11 @@
 pub mod attacks;
 pub mod board;
+pub mod engine;
 pub mod eval;
 pub mod fen;
-pub mod game;
 pub mod metrics;
 pub mod movegen;
 pub mod opening;
 pub mod search;
+pub mod terminal;
 pub mod transpositions;
