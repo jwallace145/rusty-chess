@@ -46,12 +46,12 @@ impl ChessEngine {
 
     /// Creates a new ChessEngine with the built-in London System opening book.
     pub fn with_london_system() -> Self {
-        use crate::opening::create_basic_book;
+        use crate::opening::create_london_system_opening_book;
         Self {
             minimax: Minimax::new(),
             tt: TranspositionTable::default(),
             last_search_metrics: None,
-            opening_book: Some(create_basic_book()),
+            opening_book: Some(create_london_system_opening_book()),
             use_opening_book: true,
         }
     }

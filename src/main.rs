@@ -3,7 +3,77 @@ use rusty_chess::eval::Evaluator;
 use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use rusty_chess::movegen::MoveGenerator;
 use rusty_chess::search::{ChessEngine, SearchParams};
+use std::env;
 use std::io::{self, Write};
+
+#[derive(Clone, Default)]
+struct DisplaySettings {
+    show_search_stats: bool,
+    show_tt_info: bool,
+    show_eval: bool,
+    show_move_analysis: bool,
+}
+
+impl DisplaySettings {
+    fn from_args() -> Self {
+        let args: Vec<String> = env::args().collect();
+        let mut settings = Self::default();
+
+        for arg in &args[1..] {
+            match arg.as_str() {
+                "--stats" | "-s" => settings.show_search_stats = true,
+                "--tt" | "-t" => settings.show_tt_info = true,
+                "--eval" | "-e" => settings.show_eval = true,
+                "--analysis" | "-a" => settings.show_move_analysis = true,
+                "--verbose" | "-v" => {
+                    settings.show_search_stats = true;
+                    settings.show_tt_info = true;
+                    settings.show_eval = true;
+                    settings.show_move_analysis = true;
+                }
+                "--help" | "-h" => {
+                    print_usage();
+                    std::process::exit(0);
+                }
+                _ => {}
+            }
+        }
+
+        settings
+    }
+
+    fn any_enabled(&self) -> bool {
+        self.show_search_stats || self.show_tt_info || self.show_eval || self.show_move_analysis
+    }
+}
+
+fn print_usage() {
+    println!(
+        r#"
+Rusty Chess - A terminal chess engine written in Rust
+
+USAGE:
+    rusty-chess [OPTIONS]
+
+OPTIONS:
+    -s, --stats      Show search statistics (time, nodes, depth)
+    -t, --tt         Show transposition table information
+    -e, --eval       Show position evaluation before/after moves
+    -a, --analysis   Show move analysis (position change, material delta)
+    -v, --verbose    Enable all display options
+    -h, --help       Print this help message
+
+EXAMPLES:
+    rusty-chess                  Run with minimal output (default)
+    rusty-chess --verbose        Run with all performance insights enabled
+    rusty-chess -s -e            Show search stats and evaluation only
+
+IN-GAME COMMANDS:
+    You can also toggle these options during gameplay using:
+    stats, tt, eval, analysis, verbose
+"#
+    );
+}
 
 enum PlayerAction {
     Continue,
@@ -26,11 +96,16 @@ struct AiGame {
     evaluator: Evaluator,
     game_recorder: GameRecorder,
     move_counter: u16,
-    show_eval: bool,
+    display: DisplaySettings,
 }
 
 impl AiGame {
-    fn new(player_color: Color, ai_depth: u8, starting_board: Board) -> Self {
+    fn new(
+        player_color: Color,
+        ai_depth: u8,
+        starting_board: Board,
+        display: DisplaySettings,
+    ) -> Self {
         // Create search parameters with time based on depth
         // Higher depths get more time: depth * 1000ms
         let min_search_time_ms: u64 = (ai_depth as u64) * 2000;
@@ -48,7 +123,7 @@ impl AiGame {
             evaluator: Evaluator::new(),
             game_recorder: GameRecorder::new(player_color, ai_depth),
             move_counter: 0,
-            show_eval: true, // Show evaluation by default
+            display,
         }
     }
 
@@ -148,13 +223,56 @@ impl AiGame {
             "eval" => {
                 self.print_evaluation();
             }
-            "evalon" => {
-                self.show_eval = true;
-                println!("Evaluation display enabled.");
+            "stats" => {
+                self.display.show_search_stats = !self.display.show_search_stats;
+                println!(
+                    "Search statistics: {}",
+                    if self.display.show_search_stats {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
+                );
             }
-            "evaloff" => {
-                self.show_eval = false;
-                println!("Evaluation display disabled.");
+            "tt" => {
+                self.display.show_tt_info = !self.display.show_tt_info;
+                println!(
+                    "Transposition table info: {}",
+                    if self.display.show_tt_info {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
+                );
+            }
+            "evalon" => {
+                self.display.show_eval = !self.display.show_eval;
+                println!(
+                    "Evaluation display: {}",
+                    if self.display.show_eval { "ON" } else { "OFF" }
+                );
+            }
+            "analysis" => {
+                self.display.show_move_analysis = !self.display.show_move_analysis;
+                println!(
+                    "Move analysis: {}",
+                    if self.display.show_move_analysis {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
+                );
+            }
+            "verbose" => {
+                let enable = !self.display.any_enabled();
+                self.display.show_search_stats = enable;
+                self.display.show_tt_info = enable;
+                self.display.show_eval = enable;
+                self.display.show_move_analysis = enable;
+                println!("All display options: {}", if enable { "ON" } else { "OFF" });
+            }
+            "display" => {
+                self.print_display_status();
             }
             _ => {
                 if let Err(e) = self.process_move(input) {
@@ -177,7 +295,7 @@ impl AiGame {
         let ai_color = self.board.side_to_move;
 
         // Capture evaluation before the move
-        let before_eval = if self.show_eval {
+        let before_eval = if self.display.show_eval || self.display.show_move_analysis {
             Some(self.evaluator.evaluate_detailed(&self.board))
         } else {
             None
@@ -246,13 +364,22 @@ impl AiGame {
                         ai_metrics,
                     );
 
-                    // Display search statistics if eval is enabled
-                    if self.show_eval {
+                    // Display search statistics
+                    if self.display.show_search_stats {
                         println!("=== Search Statistics ===");
                         println!("  Time: {:.2}s", search_metrics.search_time.as_secs_f64());
                         println!("  Nodes: {} ({} n/s)", search_metrics.nodes_explored, nps);
                         println!("  Depth reached: {}", search_metrics.max_depth_reached);
-                        println!("  TT hit rate: {:.1}%", tt_hit_rate);
+                        println!();
+                    }
+
+                    // Display transposition table info
+                    if self.display.show_tt_info {
+                        println!("=== Transposition Table ===");
+                        println!("  Entries: {}", self.engine.get_tt_num_entries());
+                        println!("  Size: {} KB", self.engine.get_tt_size_bytes() / 1024);
+                        println!("  Hits: {} | Misses: {}", tt_hits, tt_misses);
+                        println!("  Hit rate: {:.1}%", tt_hit_rate);
                         println!();
                     }
                 }
@@ -262,55 +389,58 @@ impl AiGame {
                 board_after.make_move(best_move);
 
                 // Show evaluation breakdown if enabled
-                if self.show_eval
-                    && let Some(ref before) = before_eval
-                {
-                    println!(
-                        "=== Before {},{} Evaluation ===",
-                        from_notation, to_notation
-                    );
-                    println!("{}", before);
-                    println!();
-
+                if let Some(ref before) = before_eval {
                     let after_eval = self.evaluator.evaluate_detailed(&board_after);
-                    println!("=== After {},{} Evaluation ===", from_notation, to_notation);
-                    println!("{}", after_eval);
-                    println!();
 
-                    // Show the evaluation change from the AI's perspective
-                    let delta = after_eval.total - before.total;
-                    let improvement = match ai_color {
-                        Color::White => delta,
-                        Color::Black => -delta,
-                    };
-                    println!("=== Move Analysis ===");
-                    println!(
-                        "  Position change: {:+} cp (for {:?})",
-                        improvement, ai_color
-                    );
+                    if self.display.show_eval {
+                        println!(
+                            "=== Before {},{} Evaluation ===",
+                            from_notation, to_notation
+                        );
+                        println!("{}", before);
+                        println!();
 
-                    // Highlight significant changes
-                    let mat_delta = after_eval.material - before.material;
-                    if mat_delta != 0 {
-                        println!("  Material change: {:+} cp", mat_delta);
+                        println!("=== After {},{} Evaluation ===", from_notation, to_notation);
+                        println!("{}", after_eval);
+                        println!();
                     }
-                    let threat_delta = after_eval.threat - before.threat;
-                    if threat_delta.abs() >= 30 {
-                        println!("  Threat change:   {:+} cp", threat_delta);
+
+                    // Show move analysis if enabled
+                    if self.display.show_move_analysis {
+                        let delta = after_eval.total - before.total;
+                        let improvement = match ai_color {
+                            Color::White => delta,
+                            Color::Black => -delta,
+                        };
+                        println!("=== Move Analysis ===");
+                        println!(
+                            "  Position change: {:+} cp (for {:?})",
+                            improvement, ai_color
+                        );
+
+                        // Highlight significant changes
+                        let mat_delta = after_eval.material - before.material;
+                        if mat_delta != 0 {
+                            println!("  Material change: {:+} cp", mat_delta);
+                        }
+                        let threat_delta = after_eval.threat - before.threat;
+                        if threat_delta.abs() >= 30 {
+                            println!("  Threat change:   {:+} cp", threat_delta);
+                        }
+                        let mobility_delta = after_eval.mobility - before.mobility;
+                        if mobility_delta.abs() >= 20 {
+                            println!("  Mobility change: {:+} cp", mobility_delta);
+                        }
+                        let king_safety_delta = after_eval.king_safety - before.king_safety;
+                        if king_safety_delta.abs() >= 30 {
+                            println!("  King safety:     {:+} cp", king_safety_delta);
+                        }
+                        let forcing_delta = after_eval.forcing_moves - before.forcing_moves;
+                        if forcing_delta.abs() >= 30 {
+                            println!("  Forcing moves:   {:+} cp", forcing_delta);
+                        }
+                        println!();
                     }
-                    let mobility_delta = after_eval.mobility - before.mobility;
-                    if mobility_delta.abs() >= 20 {
-                        println!("  Mobility change: {:+} cp", mobility_delta);
-                    }
-                    let king_safety_delta = after_eval.king_safety - before.king_safety;
-                    if king_safety_delta.abs() >= 30 {
-                        println!("  King safety:     {:+} cp", king_safety_delta);
-                    }
-                    let forcing_delta = after_eval.forcing_moves - before.forcing_moves;
-                    if forcing_delta.abs() >= 30 {
-                        println!("  Forcing moves:   {:+} cp", forcing_delta);
-                    }
-                    println!();
                 }
 
                 let state = self.board.make_move(best_move);
@@ -451,6 +581,40 @@ impl AiGame {
 
         println!("Total: {} legal moves\n", legal_moves.len());
     }
+
+    fn print_display_status(&self) {
+        println!("\n=== Display Settings ===");
+        println!(
+            "  stats    - Search statistics:      {}",
+            if self.display.show_search_stats {
+                "ON"
+            } else {
+                "OFF"
+            }
+        );
+        println!(
+            "  tt       - Transposition table:    {}",
+            if self.display.show_tt_info {
+                "ON"
+            } else {
+                "OFF"
+            }
+        );
+        println!(
+            "  evalon   - Evaluation display:     {}",
+            if self.display.show_eval { "ON" } else { "OFF" }
+        );
+        println!(
+            "  analysis - Move analysis:          {}",
+            if self.display.show_move_analysis {
+                "ON"
+            } else {
+                "OFF"
+            }
+        );
+        println!("  verbose  - Toggle all on/off");
+        println!();
+    }
 }
 
 fn parse_square(s: &str) -> Result<usize, String> {
@@ -530,7 +694,7 @@ fn get_chess_engine_settings() -> ChessEngineSettings {
     }
 }
 
-fn display_instructions(settings: &ChessEngineSettings) {
+fn display_instructions(settings: &ChessEngineSettings, display: &DisplaySettings) {
     let color_str = match settings.player_color {
         Color::White => "White",
         Color::Black => "Black",
@@ -544,15 +708,42 @@ fn display_instructions(settings: &ChessEngineSettings) {
     println!("├─────────────────────────────────────────┤");
     println!("│            Commands                     │");
     println!("├─────────────────────────────────────────┤");
-    println!("│  e2,e4  - Make a move (from,to)         │");
-    println!("│  moves  - Show all legal moves          │");
-    println!("│  undo   - Undo last move pair           │");
-    println!("│  fen    - Show current FEN              │");
-    println!("│  eval   - Show position evaluation      │");
-    println!("│  evaloff- Disable eval display on moves │");
-    println!("│  evalon - Enable eval display on moves  │");
-    println!("│  resign - Resign the game               │");
-    println!("│  quit   - Exit the game                 │");
+    println!("│  e2,e4    - Make a move (from,to)       │");
+    println!("│  moves    - Show all legal moves        │");
+    println!("│  undo     - Undo last move pair         │");
+    println!("│  fen      - Show current FEN            │");
+    println!("│  eval     - Show position evaluation    │");
+    println!("│  resign   - Resign the game             │");
+    println!("│  quit     - Exit the game               │");
+    println!("├─────────────────────────────────────────┤");
+    println!("│       Display Toggles (for devs)        │");
+    println!("├─────────────────────────────────────────┤");
+    println!(
+        "│  stats    - Search statistics     [{}] │",
+        if display.show_search_stats {
+            "ON "
+        } else {
+            "OFF"
+        }
+    );
+    println!(
+        "│  tt       - Transposition table   [{}] │",
+        if display.show_tt_info { "ON " } else { "OFF" }
+    );
+    println!(
+        "│  evalon   - Eval before/after     [{}] │",
+        if display.show_eval { "ON " } else { "OFF" }
+    );
+    println!(
+        "│  analysis - Move analysis         [{}] │",
+        if display.show_move_analysis {
+            "ON "
+        } else {
+            "OFF"
+        }
+    );
+    println!("│  verbose  - Toggle all on/off           │");
+    println!("│  display  - Show current settings       │");
     println!("└─────────────────────────────────────────┘");
     println!();
 }
@@ -699,14 +890,18 @@ fn get_fen_position() -> Board {
 }
 
 fn main() {
+    // Parse command-line arguments for display settings
+    let display_settings = DisplaySettings::from_args();
+
     display_introduction();
     let settings: ChessEngineSettings = get_chess_engine_settings();
-    display_instructions(&settings);
+    display_instructions(&settings, &display_settings);
 
     let mut game: AiGame = AiGame::new(
         settings.player_color,
         settings.search_depth,
         settings.starting_position,
+        display_settings,
     );
 
     // If player chose black and it's white's turn, AI makes the first move
