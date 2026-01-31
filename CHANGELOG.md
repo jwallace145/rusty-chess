@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/jwallace145/rusty-chess/compare/v1.4.2...v1.4.3) (2026-01-31)
+
+
+### Bug Fixes
+
+* **releases:** Fix upload binaries workflow ([#17](https://github.com/jwallace145/rusty-chess/issues/17)) ([33f648e](https://github.com/jwallace145/rusty-chess/commit/33f648e4b5e03e0d41beb6a0c24f1f846aa00206))
+
 ## [1.4.2](https://github.com/jwallace145/rusty-chess/compare/v1.4.1...v1.4.2) (2026-01-31)
 
 
