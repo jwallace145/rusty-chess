@@ -37,16 +37,16 @@ name = "create-knight-king-attack-tables"
 path = "src/bin/create_knight_king_attack_tables.rs"
 
 [[bin]]
-name = "two-player-chess"
-path = "src/bin/two_player_chess.rs"
+name = "player-vs-engine"
+path = "src/bin/player_vs_engine_game.rs"
 
 [[bin]]
-name = "test_opening_book"
-path = "src/bin/test_opening_book.rs"
+name = "evaluate-board"
+path = "src/bin/evaluate_board.rs"
 
 [[bin]]
-name = "test_engine_with_book"
-path = "src/bin/test_engine_with_book.rs"
+name = "debug-search"
+path = "src/bin/debug_search.rs"
 
 [[bin]]
 name = "find-best-move"

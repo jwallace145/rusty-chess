@@ -1,93 +1,18 @@
-use rusty_chess::board::{Board, ChessMove, ChessMoveState, Color, print_board};
-use rusty_chess::eval::Evaluator;
-use rusty_chess::metrics::{AiMoveMetrics, GameRecorder, GameResult};
-use rusty_chess::movegen::MoveGenerator;
-use rusty_chess::search::{ChessEngine, SearchParams};
-use std::env;
+use crate::board::{Board, ChessMove, ChessMoveState, Color, print_board};
+use crate::eval::Evaluator;
+use crate::metrics::{AiMoveMetrics, GameRecorder, GameResult};
+use crate::movegen::MoveGenerator;
+use crate::search::{ChessEngine, SearchParams};
+use crate::terminal::DisplaySettings;
 use std::io::{self, Write};
 
-#[derive(Clone, Default)]
-struct DisplaySettings {
-    show_search_stats: bool,
-    show_tt_info: bool,
-    show_eval: bool,
-    show_move_analysis: bool,
-}
-
-impl DisplaySettings {
-    fn from_args() -> Self {
-        let args: Vec<String> = env::args().collect();
-        let mut settings = Self::default();
-
-        for arg in &args[1..] {
-            match arg.as_str() {
-                "--stats" | "-s" => settings.show_search_stats = true,
-                "--tt" | "-t" => settings.show_tt_info = true,
-                "--eval" | "-e" => settings.show_eval = true,
-                "--analysis" | "-a" => settings.show_move_analysis = true,
-                "--verbose" | "-v" => {
-                    settings.show_search_stats = true;
-                    settings.show_tt_info = true;
-                    settings.show_eval = true;
-                    settings.show_move_analysis = true;
-                }
-                "--help" | "-h" => {
-                    print_usage();
-                    std::process::exit(0);
-                }
-                _ => {}
-            }
-        }
-
-        settings
-    }
-
-    fn any_enabled(&self) -> bool {
-        self.show_search_stats || self.show_tt_info || self.show_eval || self.show_move_analysis
-    }
-}
-
-fn print_usage() {
-    println!(
-        r#"
-Rusty Chess - A terminal chess engine written in Rust
-
-USAGE:
-    rusty-chess [OPTIONS]
-
-OPTIONS:
-    -s, --stats      Show search statistics (time, nodes, depth)
-    -t, --tt         Show transposition table information
-    -e, --eval       Show position evaluation before/after moves
-    -a, --analysis   Show move analysis (position change, material delta)
-    -v, --verbose    Enable all display options
-    -h, --help       Print this help message
-
-EXAMPLES:
-    rusty-chess                  Run with minimal output (default)
-    rusty-chess --verbose        Run with all performance insights enabled
-    rusty-chess -s -e            Show search stats and evaluation only
-
-IN-GAME COMMANDS:
-    You can also toggle these options during gameplay using:
-    stats, tt, eval, analysis, verbose
-"#
-    );
-}
-
-enum PlayerAction {
+pub enum PlayerAction {
     Continue,
     Quit,
     Resign,
 }
 
-struct ChessEngineSettings {
-    player_color: Color,
-    search_depth: u8,
-    starting_position: Board,
-}
-
-struct AiGame {
+pub struct AiGame {
     board: Board,
     move_history: Vec<ChessMoveState>,
     player_color: Color,
@@ -100,7 +25,11 @@ struct AiGame {
 }
 
 impl AiGame {
-    fn new(
+    pub fn side_to_move(&self) -> Color {
+        self.board.side_to_move
+    }
+
+    pub fn new(
         player_color: Color,
         ai_depth: u8,
         starting_board: Board,
@@ -127,7 +56,7 @@ impl AiGame {
         }
     }
 
-    fn run(&mut self) {
+    pub fn run(&mut self) {
         let mut game_result = GameResult::InProgress;
         let mut player_quit = false;
 
@@ -617,7 +546,7 @@ impl AiGame {
     }
 }
 
-fn parse_square(s: &str) -> Result<usize, String> {
+pub fn parse_square(s: &str) -> Result<usize, String> {
     if s.len() != 2 {
         return Err(format!("Invalid square: {}", s));
     }
@@ -640,7 +569,7 @@ fn parse_square(s: &str) -> Result<usize, String> {
     Ok(rank_idx * 8 + file_idx)
 }
 
-fn square_to_notation(square: usize) -> String {
+pub fn square_to_notation(square: usize) -> String {
     let file = (square % 8) as u8;
     let rank = (square / 8) as u8;
 
@@ -648,266 +577,4 @@ fn square_to_notation(square: usize) -> String {
     let rank_char = (b'1' + rank) as char;
 
     format!("{}{}", file_char, rank_char)
-}
-
-fn display_introduction() {
-    println!(
-        r#"
-    ╔═══════════════════════════════════════════════════════════════╗
-    ║                                                               ║
-    ║   ♜ ♞ ♝ ♛ ♚ ♝ ♞ ♜      ____  _   _ ____ _______   __          ║
-    ║   ♟ ♟ ♟ ♟ ♟ ♟ ♟ ♟     |  _ \| | | / ___|_   _\ \ / /          ║
-    ║   . . . . . . . .     | |_) | | | \___ \ | |  \ V /           ║
-    ║   . . . . . . . .     |  _ <| |_| |___) || |   | |            ║
-    ║   . . . . . . . .     |_| \_\\___/|____/ |_|   |_|            ║
-    ║   . . . . . . . .                                             ║
-    ║   ♙ ♙ ♙ ♙ ♙ ♙ ♙ ♙       ____ _   _ _____ ____ ____            ║
-    ║   ♖ ♘ ♗ ♕ ♔ ♗ ♘ ♖      / ___| | | | ____/ ___/ ___|           ║
-    ║                       | |   | |_| |  _| \___ \___ \           ║
-    ║                       | |___|  _  | |___ ___) |__) |          ║
-    ║                        \____|_| |_|_____|____/____/           ║
-    ║                                                               ║
-    ╠═══════════════════════════════════════════════════════════════╣
-    ║                                                               ║
-    ║          A terminal chess engine written in Rust              ║
-    ║                                                               ║
-    ║    Features:                                                  ║
-    ║      - Minimax search with alpha-beta pruning                 ║
-    ║      - Quiescence search for tactical accuracy                ║
-    ║      - Opening book support                                   ║
-    ║      - Full move validation and game state tracking           ║
-    ║                                                               ║
-    ╚═══════════════════════════════════════════════════════════════╝
-"#
-    );
-}
-
-fn get_chess_engine_settings() -> ChessEngineSettings {
-    let player_color: Color = get_player_color();
-    let search_depth: u8 = get_search_depth();
-    let starting_position: Board = get_starting_position();
-
-    ChessEngineSettings {
-        player_color,
-        search_depth,
-        starting_position,
-    }
-}
-
-fn display_instructions(settings: &ChessEngineSettings, display: &DisplaySettings) {
-    let color_str = match settings.player_color {
-        Color::White => "White",
-        Color::Black => "Black",
-    };
-
-    println!("┌─────────────────────────────────────────┐");
-    println!("│            Game Settings                │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  Player color:     {:>19}  │", color_str);
-    println!("│  AI search depth:  {:>15} ply  │", settings.search_depth);
-    println!("├─────────────────────────────────────────┤");
-    println!("│            Commands                     │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  e2,e4    - Make a move (from,to)       │");
-    println!("│  moves    - Show all legal moves        │");
-    println!("│  undo     - Undo last move pair         │");
-    println!("│  fen      - Show current FEN            │");
-    println!("│  eval     - Show position evaluation    │");
-    println!("│  resign   - Resign the game             │");
-    println!("│  quit     - Exit the game               │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│       Display Toggles (for devs)        │");
-    println!("├─────────────────────────────────────────┤");
-    println!(
-        "│  stats    - Search statistics     [{}] │",
-        if display.show_search_stats {
-            "ON "
-        } else {
-            "OFF"
-        }
-    );
-    println!(
-        "│  tt       - Transposition table   [{}] │",
-        if display.show_tt_info { "ON " } else { "OFF" }
-    );
-    println!(
-        "│  evalon   - Eval before/after     [{}] │",
-        if display.show_eval { "ON " } else { "OFF" }
-    );
-    println!(
-        "│  analysis - Move analysis         [{}] │",
-        if display.show_move_analysis {
-            "ON "
-        } else {
-            "OFF"
-        }
-    );
-    println!("│  verbose  - Toggle all on/off           │");
-    println!("│  display  - Show current settings       │");
-    println!("└─────────────────────────────────────────┘");
-    println!();
-}
-
-fn get_player_color() -> Color {
-    println!("┌─────────────────────────────────────────┐");
-    println!("│         Choose Your Color               │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  [w] White  ♔  - Move first             │");
-    println!("│  [b] Black  ♚  - AI moves first         │");
-    println!("└─────────────────────────────────────────┘");
-
-    loop {
-        print!("  > ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        match input.trim().to_lowercase().as_str() {
-            "w" | "white" => {
-                println!("  ✓ Playing as White\n");
-                return Color::White;
-            }
-            "b" | "black" => {
-                println!("  ✓ Playing as Black\n");
-                return Color::Black;
-            }
-            _ => println!("  ✗ Invalid choice. Enter 'w' or 'b'."),
-        }
-    }
-}
-
-fn get_search_depth() -> u8 {
-    println!("┌─────────────────────────────────────────┐");
-    println!("│         AI Difficulty (1-10)            │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  1-3   Beginner    - Fast, weak play    │");
-    println!("│  4-5   Intermediate - Balanced          │");
-    println!("│  6-7   Advanced    - Strong, slower     │");
-    println!("│  8-10  Expert      - Very strong        │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  Recommended: 5                         │");
-    println!("└─────────────────────────────────────────┘");
-
-    loop {
-        print!("  > ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        match input.trim().parse::<u8>() {
-            Ok(depth) if (1..=10).contains(&depth) => {
-                let difficulty = match depth {
-                    1..=3 => "Beginner",
-                    4..=5 => "Intermediate",
-                    6..=7 => "Advanced",
-                    _ => "Expert",
-                };
-                println!("  ✓ Difficulty: {} (depth {})\n", difficulty, depth);
-                return depth;
-            }
-            _ => println!("  ✗ Invalid choice. Enter a number 1-10."),
-        }
-    }
-}
-
-fn get_starting_position() -> Board {
-    println!("┌─────────────────────────────────────────┐");
-    println!("│        Starting Position                │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  [n] Standard - Normal chess setup      │");
-    println!("│  [y] Custom   - Load from FEN string    │");
-    println!("└─────────────────────────────────────────┘");
-
-    loop {
-        print!("  > ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        match input.trim().to_lowercase().as_str() {
-            "n" | "no" => {
-                println!("  ✓ Using standard starting position\n");
-                return Board::startpos();
-            }
-            "y" | "yes" => {
-                return get_fen_position();
-            }
-            _ => println!("  ✗ Invalid choice. Enter 'y' or 'n'."),
-        }
-    }
-}
-
-fn get_fen_position() -> Board {
-    println!("┌─────────────────────────────────────────┐");
-    println!("│          Enter FEN Position             │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  Enter a valid FEN string to load a     │");
-    println!("│  custom position. Type 'cancel' to      │");
-    println!("│  use the standard starting position.    │");
-    println!("├─────────────────────────────────────────┤");
-    println!("│  Example FEN (starting position):       │");
-    println!("│  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/    │");
-    println!("│  RNBQKBNR w KQkq - 0 1                  │");
-    println!("└─────────────────────────────────────────┘");
-
-    loop {
-        print!("  FEN> ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        let input = input.trim();
-
-        if input.to_lowercase() == "cancel" {
-            println!("  ✓ Using standard starting position\n");
-            return Board::startpos();
-        }
-
-        // Try to parse the FEN
-        let board = Board::from_fen(input);
-
-        // Validate the board has kings for both sides
-        if board.king_sq[0] >= 64 || board.king_sq[1] >= 64 {
-            println!("  ✗ Invalid FEN: Both sides must have a king.");
-            continue;
-        }
-
-        println!("  ✓ FEN loaded successfully!\n");
-        return board;
-    }
-}
-
-fn main() {
-    // Parse command-line arguments for display settings
-    let display_settings = DisplaySettings::from_args();
-
-    display_introduction();
-    let settings: ChessEngineSettings = get_chess_engine_settings();
-    display_instructions(&settings, &display_settings);
-
-    let mut game: AiGame = AiGame::new(
-        settings.player_color,
-        settings.search_depth,
-        settings.starting_position,
-        display_settings,
-    );
-
-    // If player chose black and it's white's turn, AI makes the first move
-    if settings.player_color == Color::Black && game.board.side_to_move == Color::White {
-        println!("\nAI will make the first move as White.\n");
-    }
-
-    game.run();
 }
