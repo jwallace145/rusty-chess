@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/jwallace145/rusty-chess/compare/v1.4.0...v1.4.1) (2026-01-31)
+
+
+### Bug Fixes
+
+* **releases:** Fix ghost reference in PR template ([#10](https://github.com/jwallace145/rusty-chess/issues/10)) ([bc95bd0](https://github.com/jwallace145/rusty-chess/commit/bc95bd08798b9b1f4b2e6fd1968436c9d97a361c))
+
 # [1.4.0](https://github.com/jwallace145/rusty-chess/compare/v1.3.0...v1.4.0) (2026-01-31)
 
 
