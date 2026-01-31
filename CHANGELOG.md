@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/jwallace145/rusty-chess/compare/v1.3.0...v1.4.0) (2026-01-31)
+
+
+### Features
+
+* **releases:** Upload binaries necessary for distribution with each release ([#9](https://github.com/jwallace145/rusty-chess/issues/9)) ([5256c27](https://github.com/jwallace145/rusty-chess/commit/5256c277a30b7255bf37c9906ba897fcc6d3ce97))
+
 # [1.3.0](https://github.com/jwallace145/rusty-chess/compare/v1.2.0...v1.3.0) (2026-01-31)
 
 
