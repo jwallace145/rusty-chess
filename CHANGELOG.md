@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/jwallace145/rusty-chess/compare/v1.1.0...v1.2.0) (2026-01-31)
+
+
+### Features
+
+* **engine:** Allow player to optionally select engine opening book ([#5](https://github.com/jwallace145/rusty-chess/issues/5)) ([66566e7](https://github.com/jwallace145/rusty-chess/commit/66566e733b619276d8724f57508dec3627490034))
+
 # [1.1.0](https://github.com/jwallace145/rusty-chess/compare/v1.0.0...v1.1.0) (2026-01-31)
 
 
