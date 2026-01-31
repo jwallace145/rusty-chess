@@ -5,20 +5,29 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_SECRET }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # REQUIRED for tags
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "jwallace145-release-bot[bot]"
+          git config user.email "jwallace145-release-bot[bot]@users.noreply.github.com"
+
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,5 +43,5 @@ jobs:
 
       - name: Run semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: semantic-release
