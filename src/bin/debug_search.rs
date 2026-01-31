@@ -71,8 +71,8 @@ fn main() {
     println!(
         "En passant square: {}",
         if board.en_passant < 64 {
-            let file = (board.en_passant % 8) as u8;
-            let rank = (board.en_passant / 8) as u8;
+            let file = board.en_passant % 8;
+            let rank = board.en_passant / 8;
             format!("{}{}", (b'a' + file) as char, (b'1' + rank) as char)
         } else {
             "-".to_string()
