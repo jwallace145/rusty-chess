@@ -71,7 +71,7 @@ jobs:
             cargo test --lib --release --quiet
           elif [ "${{ matrix.tool }}" = "audit" ]; then
             echo "Auditing dependencies with cargo audit..."
-            cargo install cargo-audit --force
+            command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit
             cargo audit
           fi
 
