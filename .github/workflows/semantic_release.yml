@@ -10,14 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the repository with full history
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      # 2️⃣ Generate GitHub App token
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1
@@ -25,31 +23,26 @@ jobs:
           app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_APP_SECRET }}
 
-      # 3️⃣ Configure git identity
       - name: Configure git identity
         run: |
           git config user.name "jwallace145-release-bot[bot]"
           git config user.email "jwallace145-release-bot[bot]@users.noreply.github.com"
 
-      # 4️⃣ Get last commit author to prevent infinite loop
       - name: Get last commit author
         run: |
           echo "LAST_AUTHOR=$(git log -1 --pretty=format:'%an <%ae>')" >> $GITHUB_ENV
           echo "Last commit by: $LAST_AUTHOR"
 
-      # 5️⃣ Ensure Git remote uses App token for pushes
       - name: Configure Git remote for App token
         if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         run: |
           git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}
 
-      # 6️⃣ Setup Node.js
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # 7️⃣ Install semantic-release (only if last commit is NOT Cargo.toml sync commit)
       - name: Install semantic-release
         if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         run: |
@@ -58,7 +51,6 @@ jobs:
             @semantic-release/git \
             @semantic-release/github
 
-      # 8️⃣ Run semantic-release
       - name: Run semantic-release
         if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         env:
