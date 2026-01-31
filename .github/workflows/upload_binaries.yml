@@ -29,7 +29,7 @@ jobs:
       - name: Prepare release artifacts
         run: |
           mkdir -p release
-          BIN_NAME="rusty-chess"
+          BIN_NAME="player-vs-engine"
           TAR_NAME="rusty-chess-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
 
           cp target/release/$BIN_NAME release/
