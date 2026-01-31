@@ -10,13 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the repo
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Generate GitHub App token
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1
@@ -24,28 +22,26 @@ jobs:
           app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_APP_SECRET }}
 
-      # Configure git identity
       - name: Configure git identity
         run: |
           git config user.name "jwallace145-release-bot[bot]"
           git config user.email "jwallace145-release-bot[bot]@users.noreply.github.com"
 
-      # Skip if last commit is Cargo.toml sync commit (prevents infinite loop)
+      # Get last commit author
       - name: Get last commit author
-        id: last_commit
         run: |
-          echo "::set-output name=last_author::$(git log -1 --pretty=format:'%an <%ae>')"
+          echo "LAST_AUTHOR=$(git log -1 --pretty=format:'%an <%ae>')" >> $GITHUB_ENV
+          echo "Last commit by: $LAST_AUTHOR"
 
-      # Install Node.js
+      # Setup Node
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # Install semantic-release
+      # Install semantic-release (only if last commit is NOT Cargo.toml sync commit)
       - name: Install semantic-release
-        if: steps.last_commit.outputs.last_author != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
-
+        if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         run: |
           npm install -g semantic-release \
             @semantic-release/changelog \
@@ -54,7 +50,7 @@ jobs:
 
       # Run semantic-release
       - name: Run semantic-release
-        if: steps.last_commit.outputs.last_author != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
+        if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: semantic-release
