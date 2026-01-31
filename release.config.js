@@ -17,6 +17,14 @@ module.exports = {
           'chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}',
       },
     ],
-    '@semantic-release/github',
+    [
+      '@semantic-release/github',
+      {
+        // Don't fail the release if an issue/PR can't be resolved
+        failOnError: false,
+        // Disable automatic comments on merged PRs
+        successComment: false,
+      },
+    ],
   ],
 };
