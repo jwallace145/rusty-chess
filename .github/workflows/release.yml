@@ -20,14 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # REQUIRED for tags
+          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure git identity
         run: |
           git config user.name "jwallace145-release-bot[bot]"
           git config user.email "jwallace145-release-bot[bot]@users.noreply.github.com"
-
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -45,3 +44,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: semantic-release
+
+      # --- NEW STEP ---
+      - name: Sync Cargo.toml with release
+        run: |
+          # Install cargo-edit if needed
+          cargo install cargo-edit --force
+
+          # Get latest tag (strip leading v)
+          version=$(git describe --tags --abbrev=0 | sed 's/^v//')
+          echo "Updating Cargo.toml to version $version"
+
+          # Update Cargo.toml
+          cargo set-version $version
+
+          # Commit changes
+          git add Cargo.toml
+          git commit -m "chore: sync Cargo.toml with release $version" || echo "No changes to commit"
+          git push

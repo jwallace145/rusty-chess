@@ -1,3 +1,5 @@
+// Chess Engine - MIT License, 2026 James Wallace
+
 use rusty_chess::board::Color;
 use rusty_chess::engine::AiGame;
 use rusty_chess::terminal::{
