@@ -35,7 +35,7 @@ jobs:
         id: last_commit
         run: |
           echo "LAST_AUTHOR=$(git log -1 --pretty=format:'%an <%ae>')" >> $GITHUB_ENV
-          echo "LAST_AUTHOR=$LAST_AUTHOR"
+          echo "LAST_AUTHOR=$(cat $GITHUB_ENV | grep LAST_AUTHOR | cut -d'=' -f2)"
 
       # Install Node.js
       - name: Setup Node
