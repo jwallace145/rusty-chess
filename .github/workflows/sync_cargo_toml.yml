@@ -1,0 +1,41 @@
+name: Sync Cargo.toml Version
+
+on:
+  workflow_run:
+    workflows: ["Semantic Release"]
+    types:
+      - completed
+
+jobs:
+  sync:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Configure git identity for the bot
+      - name: Configure git identity
+        run: |
+          git config user.name "jwallace145-release-bot[bot]"
+          git config user.email "jwallace145-release-bot[bot]@users.noreply.github.com"
+
+      # Install cargo-edit
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --force
+
+      # Sync Cargo.toml with latest tag
+      - name: Update Cargo.toml version
+        run: |
+          # Get latest tag (strip leading 'v')
+          version=$(git describe --tags --abbrev=0 | sed 's/^v//')
+          echo "Updating Cargo.toml to version $version"
+          cargo set-version $version
+
+          git add Cargo.toml
+          git commit -m "chore: sync Cargo.toml with release $version" || echo "No changes to commit"
+          git push
