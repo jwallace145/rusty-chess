@@ -1,3 +1,10 @@
+## [1.4.6](https://github.com/jwallace145/rusty-chess/compare/v1.4.5...v1.4.6) (2026-01-31)
+
+
+### Bug Fixes
+
+* **releases:** Use release bot token for Cargo TOML version sync workflow ([#21](https://github.com/jwallace145/rusty-chess/issues/21)) ([9c78a93](https://github.com/jwallace145/rusty-chess/commit/9c78a934a7bd0ff96aa83fbd272b24c133317972))
+
 ## [1.4.5](https://github.com/jwallace145/rusty-chess/compare/v1.4.4...v1.4.5) (2026-01-31)
 
 
