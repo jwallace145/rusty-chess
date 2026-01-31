@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/jwallace145/rusty-chess/compare/v1.2.0...v1.3.0) (2026-01-31)
+
+
+### Features
+
+* **releases:** Update release workflow to bump Cargo version ([#8](https://github.com/jwallace145/rusty-chess/issues/8)) ([a25a7ab](https://github.com/jwallace145/rusty-chess/commit/a25a7abd857f4dd431059e1200ae65ee3a7702ed))
+
 # [1.2.0](https://github.com/jwallace145/rusty-chess/compare/v1.1.0...v1.2.0) (2026-01-31)
 
 
