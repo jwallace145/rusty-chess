@@ -1,3 +1,15 @@
+## [1.4.2](https://github.com/jwallace145/rusty-chess/compare/v1.4.1...v1.4.2) (2026-01-31)
+
+
+### Bug Fixes
+
+* **releases:** Fix infinite release loop ([#11](https://github.com/jwallace145/rusty-chess/issues/11)) ([6096066](https://github.com/jwallace145/rusty-chess/commit/6096066d5ea8840281cc1411668f1ef0522fec1f))
+* **releases:** Fix semantic release workflow ([#15](https://github.com/jwallace145/rusty-chess/issues/15)) ([ed7e03e](https://github.com/jwallace145/rusty-chess/commit/ed7e03ec1d233f2c359775476be73061e74e8a34))
+* **releases:** Fix semantic release workflow ([#16](https://github.com/jwallace145/rusty-chess/issues/16)) ([3dae5a9](https://github.com/jwallace145/rusty-chess/commit/3dae5a90e90d22399ecff128b931a460b9343d15))
+* **releases:** Set correct remote URL for release workflows ([#13](https://github.com/jwallace145/rusty-chess/issues/13)) ([eab413c](https://github.com/jwallace145/rusty-chess/commit/eab413c7bbfd45a914fe416100e26207e39fdd19))
+* **releases:** Set correct remote URL for release workflows ([#14](https://github.com/jwallace145/rusty-chess/issues/14)) ([ab76a78](https://github.com/jwallace145/rusty-chess/commit/ab76a785dd64e8d0628b2bff7a6d5f55dfa58370))
+* **releases:** Update release bot token ([#12](https://github.com/jwallace145/rusty-chess/issues/12)) ([b1885c3](https://github.com/jwallace145/rusty-chess/commit/b1885c3a8bf35242f098f54674529ba0c238df83))
+
 ## [1.4.1](https://github.com/jwallace145/rusty-chess/compare/v1.4.0...v1.4.1) (2026-01-31)
 
 
