@@ -34,8 +34,7 @@ jobs:
       - name: Get last commit author
         id: last_commit
         run: |
-          echo "LAST_AUTHOR=$(git log -1 --pretty=format:'%an <%ae>')" >> $GITHUB_ENV
-          echo "LAST_AUTHOR=$(cat $GITHUB_ENV | grep LAST_AUTHOR | cut -d'=' -f2)"
+          echo "::set-output name=last_author::$(git log -1 --pretty=format:'%an <%ae>')"
 
       # Install Node.js
       - name: Setup Node
@@ -45,7 +44,8 @@ jobs:
 
       # Install semantic-release
       - name: Install semantic-release
-        if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
+        if: steps.last_commit.outputs.last_author != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
+
         run: |
           npm install -g semantic-release \
             @semantic-release/changelog \
@@ -54,7 +54,7 @@ jobs:
 
       # Run semantic-release
       - name: Run semantic-release
-        if: env.LAST_AUTHOR != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
+        if: steps.last_commit.outputs.last_author != 'jwallace145-release-bot[bot] <jwallace145-release-bot[bot]@users.noreply.github.com>'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: semantic-release
