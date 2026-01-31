@@ -2,8 +2,9 @@ use crate::board::{Board, ChessMove, ChessMoveState, Color, print_board};
 use crate::eval::Evaluator;
 use crate::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use crate::movegen::MoveGenerator;
+use crate::opening::create_london_system_opening_book;
 use crate::search::{ChessEngine, SearchParams};
-use crate::terminal::DisplaySettings;
+use crate::terminal::{BlackOpeningBook, DisplaySettings, WhiteOpeningBook};
 use std::io::{self, Write};
 
 pub enum PlayerAction {
@@ -34,6 +35,8 @@ impl AiGame {
         ai_depth: u8,
         starting_board: Board,
         display: DisplaySettings,
+        white_opening_book: WhiteOpeningBook,
+        black_opening_book: BlackOpeningBook,
     ) -> Self {
         // Create search parameters with time based on depth
         // Higher depths get more time: depth * 1000ms
@@ -43,17 +46,57 @@ impl AiGame {
             min_search_time_ms,
         };
 
+        // Create engine with the appropriate opening book based on AI's color
+        let engine = Self::create_engine_with_opening_book(
+            player_color,
+            white_opening_book,
+            black_opening_book,
+        );
+
         Self {
             board: starting_board,
             move_history: Vec::new(),
             player_color,
             search_params,
-            engine: ChessEngine::with_london_system(),
+            engine,
             evaluator: Evaluator::new(),
             game_recorder: GameRecorder::new(player_color, ai_depth),
             move_counter: 0,
             display,
         }
+    }
+
+    fn create_engine_with_opening_book(
+        player_color: Color,
+        white_opening_book: WhiteOpeningBook,
+        black_opening_book: BlackOpeningBook,
+    ) -> ChessEngine {
+        let mut engine = ChessEngine::new();
+
+        // AI plays the opposite color of the player
+        match player_color {
+            Color::White => {
+                // AI plays Black
+                match black_opening_book {
+                    BlackOpeningBook::None => {
+                        // No opening book for Black
+                    } // Future opening books can be added here
+                }
+            }
+            Color::Black => {
+                // AI plays White
+                match white_opening_book {
+                    WhiteOpeningBook::None => {
+                        // No opening book for White
+                    }
+                    WhiteOpeningBook::LondonSystem => {
+                        engine.set_opening_book(Some(create_london_system_opening_book()));
+                    }
+                }
+            }
+        }
+
+        engine
     }
 
     pub fn run(&mut self) {

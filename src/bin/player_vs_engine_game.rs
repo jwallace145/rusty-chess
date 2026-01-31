@@ -18,6 +18,8 @@ fn main() {
         settings.search_depth,
         settings.starting_position,
         display_settings,
+        settings.white_opening_book,
+        settings.black_opening_book,
     );
 
     // If player chose black and it's white's turn, AI makes the first move

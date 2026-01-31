@@ -1,6 +1,6 @@
 use crate::{
     board::Color,
-    terminal::{ChessEngineSettings, DisplaySettings},
+    terminal::{BlackOpeningBook, ChessEngineSettings, DisplaySettings, WhiteOpeningBook},
 };
 
 pub fn print_instructions(settings: &ChessEngineSettings, display: &DisplaySettings) {
@@ -9,11 +9,29 @@ pub fn print_instructions(settings: &ChessEngineSettings, display: &DisplaySetti
         Color::Black => "Black",
     };
 
+    // Determine the AI's opening book based on player color
+    let opening_book_str = match settings.player_color {
+        Color::White => {
+            // AI plays Black
+            match settings.black_opening_book {
+                BlackOpeningBook::None => "None",
+            }
+        }
+        Color::Black => {
+            // AI plays White
+            match settings.white_opening_book {
+                WhiteOpeningBook::None => "None",
+                WhiteOpeningBook::LondonSystem => "London System",
+            }
+        }
+    };
+
     println!("┌─────────────────────────────────────────┐");
     println!("│            Game Settings                │");
     println!("├─────────────────────────────────────────┤");
     println!("│  Player color:     {:>19}  │", color_str);
     println!("│  AI search depth:  {:>15} ply  │", settings.search_depth);
+    println!("│  AI opening book:  {:>19}  │", opening_book_str);
     println!("├─────────────────────────────────────────┤");
     println!("│            Commands                     │");
     println!("├─────────────────────────────────────────┤");
