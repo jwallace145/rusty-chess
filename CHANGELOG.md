@@ -1,3 +1,10 @@
+## [1.4.7](https://github.com/jwallace145/rusty-chess/compare/v1.4.6...v1.4.7) (2026-02-01)
+
+
+### Bug Fixes
+
+* **releases:** Create release for Apple ARM devices ([#22](https://github.com/jwallace145/rusty-chess/issues/22)) ([418b6b8](https://github.com/jwallace145/rusty-chess/commit/418b6b839646c103925559d922c7325aafaa1082))
+
 ## [1.4.6](https://github.com/jwallace145/rusty-chess/compare/v1.4.5...v1.4.6) (2026-01-31)
 
 
