@@ -1,3 +1,10 @@
+## [1.4.8](https://github.com/jwallace145/rusty-chess/compare/v1.4.7...v1.4.8) (2026-02-01)
+
+
+### Bug Fixes
+
+* **releases:** Use latest MocOS runners for binary builds ([#23](https://github.com/jwallace145/rusty-chess/issues/23)) ([047a3a1](https://github.com/jwallace145/rusty-chess/commit/047a3a13fee2d963859115d214619bc6e7cc1693))
+
 ## [1.4.7](https://github.com/jwallace145/rusty-chess/compare/v1.4.6...v1.4.7) (2026-02-01)
 
 
