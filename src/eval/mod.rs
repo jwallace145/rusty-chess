@@ -1,7 +1,7 @@
 pub mod bishop_pair;
 pub mod central_control;
+pub mod evaluation_scores;
 pub mod evaluator;
-pub mod forcing_moves;
 pub mod fork;
 pub mod king_safety;
 pub mod knight_outpost;
@@ -14,4 +14,5 @@ pub mod rook_file_evaluator;
 pub mod tempo;
 pub mod threat;
 
-pub use evaluator::{BoardEvaluator, EvaluationBreakdown, Evaluator};
+pub use evaluation_scores::EvaluationScores;
+pub use evaluator::{BoardEvaluator, Evaluator};

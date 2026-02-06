@@ -16,6 +16,9 @@ on:
     branches:
       - main
 
+# This workflow has read permissions on the PRs to perform the
+# status checks
+
 permissions:
   contents: read
 
@@ -27,11 +30,9 @@ jobs:
         tool: [fmt, clippy, check, test, audit]
 
     steps:
-      # 1️⃣ Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Install Rust and required components
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -39,7 +40,6 @@ jobs:
           override: true
           components: rustfmt, clippy
 
-      # 3️⃣ Cache dependencies for faster builds
       - name: Cache Cargo registry and target
         uses: actions/cache@v3
         with:
@@ -51,7 +51,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # 4️⃣ Run the tool corresponding to the matrix job
       - name: Run ${{ matrix.tool }}
         run: |
           echo "=== Starting ${{ matrix.tool }} check ==="

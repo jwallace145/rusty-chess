@@ -2,7 +2,7 @@ use crate::board::{Board, ChessMove, ChessMoveState, Color, print_board};
 use crate::eval::Evaluator;
 use crate::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use crate::movegen::MoveGenerator;
-use crate::opening::create_london_system_opening_book;
+use crate::opening::{create_colle_system_opening_book, create_london_system_opening_book};
 use crate::search::{ChessEngine, SearchParams};
 use crate::terminal::{BlackOpeningBook, DisplaySettings, WhiteOpeningBook};
 use std::io::{self, Write};
@@ -23,6 +23,8 @@ pub struct AiGame {
     game_recorder: GameRecorder,
     move_counter: u16,
     display: DisplaySettings,
+    /// Move ledger: Vec of (white_move, optional black_move) for display
+    move_ledger: Vec<(String, Option<String>)>,
 }
 
 impl AiGame {
@@ -63,6 +65,7 @@ impl AiGame {
             game_recorder: GameRecorder::new(player_color, ai_depth),
             move_counter: 0,
             display,
+            move_ledger: Vec::new(),
         }
     }
 
@@ -91,6 +94,9 @@ impl AiGame {
                     }
                     WhiteOpeningBook::LondonSystem => {
                         engine.set_opening_book(Some(create_london_system_opening_book()));
+                    }
+                    WhiteOpeningBook::ColleSystem => {
+                        engine.set_opening_book(Some(create_colle_system_opening_book()));
                     }
                 }
             }
@@ -407,17 +413,18 @@ impl AiGame {
                         if king_safety_delta.abs() >= 30 {
                             println!("  King safety:     {:+} cp", king_safety_delta);
                         }
-                        let forcing_delta = after_eval.forcing_moves - before.forcing_moves;
-                        if forcing_delta.abs() >= 30 {
-                            println!("  Forcing moves:   {:+} cp", forcing_delta);
-                        }
                         println!();
                     }
                 }
 
                 let state = self.board.make_move(best_move);
                 self.move_history.push(state);
+
+                // Record move and display FEN and ledger
+                let ledger_notation = format!("{},{}", from_notation, to_notation);
+                self.record_move_to_ledger(ai_color, &ledger_notation);
                 println!("FEN: {}", self.board.to_fen());
+                self.print_move_ledger();
             }
             None => {
                 println!("AI has no legal moves!");
@@ -442,7 +449,12 @@ impl AiGame {
         // Apply the move
         let state = self.board.make_move(chess_move);
         self.move_history.push(state);
+
+        // Record move and display FEN and ledger
+        let ledger_notation = format!("{},{}", from_notation, to_notation);
+        self.record_move_to_ledger(player_color, &ledger_notation);
         println!("FEN: {}", self.board.to_fen());
+        self.print_move_ledger();
 
         Ok(())
     }
@@ -585,6 +597,43 @@ impl AiGame {
             }
         );
         println!("  verbose  - Toggle all on/off");
+        println!();
+    }
+
+    /// Records a move to the ledger. White moves start a new entry, black moves complete it.
+    fn record_move_to_ledger(&mut self, color: Color, move_notation: &str) {
+        match color {
+            Color::White => {
+                self.move_ledger.push((move_notation.to_string(), None));
+            }
+            Color::Black => {
+                if let Some(last) = self.move_ledger.last_mut() {
+                    last.1 = Some(move_notation.to_string());
+                } else {
+                    // Edge case: black moves first (from custom FEN)
+                    self.move_ledger
+                        .push(("...".to_string(), Some(move_notation.to_string())));
+                }
+            }
+        }
+    }
+
+    /// Prints the move ledger in standard notation format
+    fn print_move_ledger(&self) {
+        if self.move_ledger.is_empty() {
+            return;
+        }
+
+        println!("=== Move Ledger ===");
+        let mut ledger_line = String::new();
+        for (i, (white_move, black_move)) in self.move_ledger.iter().enumerate() {
+            let move_num = i + 1;
+            ledger_line.push_str(&format!("{}. {} ", move_num, white_move));
+            if let Some(black) = black_move {
+                ledger_line.push_str(&format!("{} ", black));
+            }
+        }
+        println!("{}", ledger_line.trim());
         println!();
     }
 }

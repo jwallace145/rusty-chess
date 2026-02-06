@@ -1,7 +1,6 @@
 use crate::{
-    board::{Board, ChessMove, Color, Piece},
+    board::{Board, Color, Piece},
     eval::evaluator::BoardEvaluator,
-    movegen::MoveGenerator,
 };
 
 pub struct KingSafetyEvaluator;
@@ -11,54 +10,12 @@ impl BoardEvaluator for KingSafetyEvaluator {
         let white_king_safety: i32 = Self::king_safety(board, Color::White);
         let black_king_safety: i32 = Self::king_safety(board, Color::Black);
 
-        let mut score = white_king_safety - black_king_safety;
-
-        // Boost score if side-to-move has a legal check available
-        // This rewards attacking positions and initiative
-        if Self::has_legal_check(board) {
-            // Apply 1.2x multiplier (20% boost) if we can give check
-            // The sign matters: if score favors attacker, boost it
-            match board.side_to_move {
-                Color::White => {
-                    // White to move with check available - boost White's advantage
-                    if score > 0 {
-                        score = (score * 6) / 5; // 1.2x
-                    }
-                }
-                Color::Black => {
-                    // Black to move with check available - boost Black's advantage
-                    if score < 0 {
-                        score = (score * 6) / 5; // 1.2x (more negative)
-                    }
-                }
-            }
-        }
-
-        score
+        white_king_safety - black_king_safety
     }
 }
 
 impl KingSafetyEvaluator {
-    /// Check if the side to move has any legal move that gives check
-    fn has_legal_check(board: &Board) -> bool {
-        let mut moves = Vec::with_capacity(128);
-        MoveGenerator::generate_legal_moves(board, &mut moves);
-
-        for mv in &moves {
-            if Self::move_gives_check(board, mv) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Check if a move gives check to the opponent's king
-    fn move_gives_check(board: &Board, mv: &ChessMove) -> bool {
-        let mut board_copy = *board;
-        board_copy.make_move(*mv);
-        board_copy.in_check(board_copy.side_to_move)
-    }
-
+    #[inline]
     fn king_safety(board: &Board, color: Color) -> i32 {
         let king_pos: u8 = board.king_square(color);
 
@@ -85,6 +42,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count pawns in the shield squares (3 squares in front of king)
+    #[inline]
     fn pawn_shield(board: &Board, color: Color, king_sq: u8) -> i32 {
         let file = (king_sq % 8) as i32;
         let rank = (king_sq / 8) as i32;
@@ -114,6 +72,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Penalty for open or semi-open files next to king
+    #[inline]
     fn open_file_penalty(board: &Board, king_sq: u8) -> i32 {
         let file = king_sq % 8;
 
@@ -141,6 +100,7 @@ impl KingSafetyEvaluator {
     }
 
     /// Count enemy pieces within 1 king move radius
+    #[inline]
     fn enemy_piece_pressure(board: &Board, color: Color, king_sq: u8) -> i32 {
         let enemy = color.opponent();
 
@@ -174,49 +134,46 @@ impl KingSafetyEvaluator {
         threats
     }
 
+    #[inline]
     fn attackers_to_king_zone(board: &Board, color: Color, king_sq: u8) -> i32 {
         let enemy: Color = color.opponent();
-        let king_zone: Vec<u8> = Self::king_zone(king_sq);
+        let king_file = (king_sq % 8) as i32;
+        let king_rank = (king_sq / 8) as i32;
 
-        let mut score = 0;
-
-        for &sq in &king_zone {
-            let mut attackers = board.attackers_to(sq, enemy);
-
-            // Iterate through attacker squares in the bitboard
-            while attackers != 0 {
-                let attacker_sq = attackers.trailing_zeros() as u8;
-                if let Some((_, p)) = board.piece_on(attacker_sq) {
-                    score += match p {
-                        Piece::Pawn => 10,
-                        Piece::Knight => 30,
-                        Piece::Bishop => 30,
-                        Piece::Rook => 50,
-                        Piece::Queen => 90,
-                        _ => 0,
-                    };
-                }
-                attackers &= attackers - 1; // Clear the least significant bit
-            }
-        }
-
-        score
-    }
-
-    fn king_zone(king_sq: u8) -> Vec<u8> {
-        let mut zone = Vec::with_capacity(9);
-        let f = (king_sq % 8) as i32;
-        let r = (king_sq / 8) as i32;
+        // Collect all unique attackers to any king zone square
+        let mut all_attackers: u64 = 0;
 
         for df in -1..=1 {
             for dr in -1..=1 {
-                let nf = f + df;
-                let nr = r + dr;
-                if (0..8).contains(&nf) && (0..8).contains(&nr) {
-                    zone.push((nr * 8 + nf) as u8);
+                let f = king_file + df;
+                let r = king_rank + dr;
+
+                if !(0..8).contains(&f) || !(0..8).contains(&r) {
+                    continue;
                 }
+
+                let sq = (r * 8 + f) as u8;
+                all_attackers |= board.attackers_to(sq, enemy);
             }
         }
-        zone
+
+        // Score each unique attacker once
+        let mut score = 0;
+        while all_attackers != 0 {
+            let attacker_sq = all_attackers.trailing_zeros() as u8;
+            if let Some((_, p)) = board.piece_on(attacker_sq) {
+                score += match p {
+                    Piece::Pawn => 10,
+                    Piece::Knight => 30,
+                    Piece::Bishop => 30,
+                    Piece::Rook => 50,
+                    Piece::Queen => 90,
+                    _ => 0,
+                };
+            }
+            all_attackers &= all_attackers - 1;
+        }
+
+        score
     }
 }

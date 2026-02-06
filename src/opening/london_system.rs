@@ -1,14 +1,44 @@
 use crate::board::ChessMove;
 use crate::opening::{
-    B1, B8, C1, C2, C3, C5, C6, C7, C8, D2, D3, D4, D5, D6, D7, E2, E3, E6, E7, F1, F3, F4, F5, F6,
-    F8, G1, G6, G7, G8, H2, H3, OpeningBook, create_opening_book_from_lines, mv,
+    B1, B8, C1, C2, C3, C5, C6, C7, C8, D2, D3, D4, D5, D6, D7, E2, E3, E5, E6, E7, F1, F3, F4, F5,
+    F6, F7, F8, G1, G6, G7, G8, H2, H3, OpeningBook, capture, create_opening_book_from_lines, mv,
 };
 
-/// London System opening lines.
-/// Each line is a complete sequence from the starting position.
+// =============================
+// London System Opening (White)
+// =============================
+
 const LONDON_LINES: &[&[ChessMove]] = &[
+    // ====================================
+    // 1. d4 d5 2. Bf4 e5 3. Bxe5 f6 4. Bf4
+    // ====================================
+    &[
+        mv(D2, D4),
+        mv(D7, D5),
+        mv(C1, F4),
+        mv(E7, E5),
+        capture(F4, E5),
+        mv(F7, F6),
+        mv(E5, F4),
+    ],
+    // Queen's Pawn Opening: Horwitz Defense (Dutch Defense too?)
+
+    // ==============================================
+    // 1. d4 f5 2. Bf4 e6 3. Nf3 Nf6 4. e3 Nc6 5. Bd3
+    // ==============================================
+    &[
+        mv(D2, D4),
+        mv(F7, F5),
+        mv(C1, F4),
+        mv(E7, E6),
+        mv(G1, F3),
+        mv(G8, F6),
+        mv(E2, E3),
+        mv(B8, C6),
+        mv(F1, D3),
+    ],
     // ===========================
-    // 1. d4 d5 2. Bf4 — main move order
+    // 1. d4 d5 2. Bf4
     // ===========================
 
     // Main line: 1. d4 d5 2. Bf4 Nf6 3. e3 e6 4. Nf3 Bd6 5. Bd3
@@ -120,7 +150,7 @@ const LONDON_LINES: &[&[ChessMove]] = &[
         mv(G1, F3),
     ],
     // ===========================
-    // 1. d4 Nf6 2. Bf4 — reversed move order
+    // 1. d4 Nf6 2. Bf4
     // ===========================
 
     // 1. d4 Nf6 2. Bf4 d5 3. e3 e6 4. Nf3 Bd6 5. Bd3

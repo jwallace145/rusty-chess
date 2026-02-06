@@ -1,7 +1,9 @@
+mod colle_system;
 mod london_system;
 mod opening_book;
 mod utils;
 
+pub use colle_system::create_colle_system_opening_book;
 pub use london_system::create_london_system_opening_book;
 pub use opening_book::{OpeningBook, create_basic_book};
 pub use utils::{
