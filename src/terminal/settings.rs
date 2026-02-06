@@ -10,6 +10,7 @@ pub enum WhiteOpeningBook {
     #[default]
     None,
     LondonSystem,
+    ColleSystem,
 }
 
 /// Opening book options for when the AI plays as Black.
@@ -221,6 +222,7 @@ fn get_white_opening_book() -> WhiteOpeningBook {
     println!("├─────────────────────────────────────────┤");
     println!("│  [n] None         - No opening book     │");
     println!("│  [l] London System - d4, Bf4, e3 setup  │");
+    println!("│  [c] Colle System  - d4, Nf3, e3 setup  │");
     println!("└─────────────────────────────────────────┘");
 
     loop {
@@ -241,7 +243,11 @@ fn get_white_opening_book() -> WhiteOpeningBook {
                 println!("  ✓ London System opening book selected\n");
                 return WhiteOpeningBook::LondonSystem;
             }
-            _ => println!("  ✗ Invalid choice. Enter 'n' or 'l'."),
+            "c" | "colle" => {
+                println!("  ✓ Colle System opening book selected\n");
+                return WhiteOpeningBook::ColleSystem;
+            }
+            _ => println!("  ✗ Invalid choice. Enter 'n', 'l', or 'c'."),
         }
     }
 }

@@ -1,4 +1,14 @@
+# =======================
+# Sync Cargo TOML Version
+# =======================
+
+# This workflow updates the Cargo.toml Rusty Chess version after new
+# releases to ensure the version is kept in-sync.
+
 name: Sync Cargo.toml Version
+
+# Only run this workflow after a successful completion of the "Semantic Release"
+# workflow which generates new official releases
 
 on:
   workflow_run:

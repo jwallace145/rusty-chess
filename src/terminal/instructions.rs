@@ -22,6 +22,7 @@ pub fn print_instructions(settings: &ChessEngineSettings, display: &DisplaySetti
             match settings.white_opening_book {
                 WhiteOpeningBook::None => "None",
                 WhiteOpeningBook::LondonSystem => "London System",
+                WhiteOpeningBook::ColleSystem => "Colle System",
             }
         }
     };

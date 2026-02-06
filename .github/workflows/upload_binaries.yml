@@ -1,8 +1,22 @@
+# =================================
+# Build and Upload Release Binaries
+# =================================
+
+# This workflow builds and uploads the required release binaries
+# after each new official release. The required binaries for each
+# release are essentially the different executables for the various
+# platforms expected to use the Rusty Chess engine.
+
 name: Build and Upload Binaries
+
+# Trigger this workflow on new official publishes of new releases
 
 on:
   release:
     types: [published]
+
+# This workflow requires write permissions to upload the release
+# binaries to the official GitHub release
 
 permissions:
   contents: write

@@ -1,4 +1,20 @@
+# ===========================
+# Semantic Release Versioning
+# ===========================
+
+# On new additions to the release branch, a new version of the
+# Chess engine is created and released. This workflow is responsible
+# for incrementing the release version via conventional commits and
+# semvar versioning semantics via git tags and offical GitHub releases.
+
+# NOTE: This workflow purposefully does not run if the commit author
+# is the jwallace145-release-bot as that bot performs the Cargo TOML
+# version syncing workflow which should not trigger new releases via
+# this workflow
+
 name: Semantic Release
+
+# Only create new releases on new additions to the release branch (main)
 
 on:
   push:

@@ -1,11 +1,25 @@
+# ===============================
+# AI Code Reviews with CodeRabbit
+# ===============================
+
 name: AI PR Code Review
+
+# Grant CodeRabbit read/write permissions on the repository to read PRs
+# and leave comments
 
 permissions:
   contents: read
   pull-requests: write
 
+# Trigger CodeRabbit reviews on PRs to main branch
+
 on:
   pull_request:
+    branches:
+      - main
+
+# Use default GitHub toen and jwallace145 OpenAI API key to perform
+# CodeRabbit code reviews
 
 jobs:
   review:

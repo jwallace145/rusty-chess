@@ -18,9 +18,18 @@ once_cell = "1.21.3"
 name = "player-vs-engine"
 path = "src/bin/player_vs_engine_game.rs"
 
+[[bin]]
+name = "find-best-move"
+path = "src/bin/find_best_move.rs"
+
 [[bench]]
 name = "profile"
 path = "benches/find_best_move.rs"
+harness = false
+
+[[bench]]
+name = "evaluators"
+path = "benches/evaluators.rs"
 harness = false
 
 [dev-dependencies]

@@ -44,6 +44,45 @@ impl HistoryTable {
     }
 }
 
+/// Killer move table for move ordering.
+/// Stores two quiet moves per ply that caused beta cutoffs.
+/// These moves are likely to be good in sibling nodes at the same depth.
+#[derive(Clone)]
+pub struct KillerTable {
+    killers: [[Option<ChessMove>; 2]; MAX_PLY],
+}
+
+impl KillerTable {
+    pub fn new() -> Self {
+        Self {
+            killers: [[None; 2]; MAX_PLY],
+        }
+    }
+
+    /// Get killer moves for a given ply
+    pub fn get(&self, ply: usize) -> [Option<ChessMove>; 2] {
+        if ply < MAX_PLY {
+            self.killers[ply]
+        } else {
+            [None, None]
+        }
+    }
+
+    /// Store a killer move (quiet moves only)
+    pub fn store(&mut self, ply: usize, mv: ChessMove) {
+        if ply >= MAX_PLY || mv.capture {
+            return;
+        }
+        // Don't store duplicates
+        if self.killers[ply][0] == Some(mv) {
+            return;
+        }
+        // Shift: old first killer becomes second
+        self.killers[ply][1] = self.killers[ply][0];
+        self.killers[ply][0] = Some(mv);
+    }
+}
+
 /// Principal Variation table.
 /// Stores the best move found at each depth from previous iterations.
 #[derive(Clone)]
@@ -278,9 +317,10 @@ impl Minimax {
             return None;
         }
 
-        // Initialize PV table and history table for enhanced move ordering
+        // Initialize PV table, history table, and killer table for enhanced move ordering
         let mut pv_table = PVTable::new();
         let mut history_table = HistoryTable::new();
+        let mut killer_table = KillerTable::new();
 
         let mut best_move: Option<ChessMove> = None;
         let mut depth = 1;
@@ -296,6 +336,7 @@ impl Minimax {
                 tt,
                 metrics,
                 &mut history_table,
+                &mut killer_table,
                 &pv_table,
             );
 
@@ -325,6 +366,7 @@ impl Minimax {
                 tt,
                 metrics,
                 &mut history_table,
+                &mut killer_table,
                 &pv_table,
             );
 
@@ -350,7 +392,7 @@ impl Minimax {
     /// Performs a depth-limited search with time checking.
     ///
     /// Returns (score, best_move). If time limit is exceeded, returns (0, None).
-    /// Uses PV-first and history heuristic for enhanced move ordering.
+    /// Uses PV-first, killer moves, and history heuristic for enhanced move ordering.
     #[allow(clippy::too_many_arguments)]
     fn search_depth(
         &self,
@@ -361,6 +403,7 @@ impl Minimax {
         tt: &mut TranspositionTable,
         metrics: &mut SearchMetrics,
         history_table: &mut HistoryTable,
+        killer_table: &mut KillerTable,
         pv_table: &PVTable,
     ) -> (i32, Option<ChessMove>) {
         // Stop if time limit is exceeded
@@ -379,8 +422,16 @@ impl Minimax {
         // Get PV move from previous iteration for this depth
         let pv_move = pv_table.get(depth as usize);
 
-        // Order moves with PV-first and history heuristic
-        Self::order_moves_with_history(board, &mut move_buffer, tt, history_table, pv_move);
+        // Order moves with PV-first, killers, and history heuristic
+        Self::order_moves_with_history(
+            board,
+            &mut move_buffer,
+            tt,
+            history_table,
+            killer_table,
+            0, // ply 0 at root
+            pv_move,
+        );
 
         // Copy moves to avoid them being overwritten during recursive calls
         let moves: Vec<ChessMove> = move_buffer.to_vec();
@@ -406,6 +457,7 @@ impl Minimax {
                 &mut move_buffer,
                 time_constraints,
                 history_table,
+                killer_table,
             );
 
             // Pop position after returning
@@ -426,7 +478,7 @@ impl Minimax {
     }
 
     /// Alpha-beta search with time checking for iterative deepening.
-    /// Enhanced with history heuristic for better move ordering.
+    /// Enhanced with killer moves and history heuristic for better move ordering.
     #[allow(clippy::too_many_arguments)]
     fn alpha_beta_with_time(
         &self,
@@ -441,6 +493,7 @@ impl Minimax {
         move_buffer: &mut Vec<ChessMove>,
         time_constraints: &TimeConstraints,
         history_table: &mut HistoryTable,
+        killer_table: &mut KillerTable,
     ) -> i32 {
         // Check time limit at each node
         if time_constraints.is_time_exceeded() {
@@ -450,6 +503,7 @@ impl Minimax {
         // Track nodes explored and max depth
         metrics.nodes_explored += 1;
         let current_depth = original_depth - depth;
+        let ply = current_depth as usize;
         if current_depth > metrics.max_depth_reached {
             metrics.max_depth_reached = current_depth;
         }
@@ -517,8 +571,16 @@ impl Minimax {
             return score;
         }
 
-        // Order moves with history heuristic (no PV move at internal nodes)
-        Self::order_moves_with_history(board, move_buffer, tt, history_table, None);
+        // Order moves with killer moves and history heuristic (no PV move at internal nodes)
+        Self::order_moves_with_history(
+            board,
+            move_buffer,
+            tt,
+            history_table,
+            killer_table,
+            ply,
+            None,
+        );
 
         // Copy moves to avoid them being overwritten during recursive calls
         let moves: Vec<ChessMove> = move_buffer.to_vec();
@@ -543,6 +605,7 @@ impl Minimax {
                 move_buffer,
                 time_constraints,
                 history_table,
+                killer_table,
             );
 
             // Pop position after returning
@@ -552,9 +615,10 @@ impl Minimax {
             if score >= beta {
                 metrics.beta_cutoffs += 1;
 
-                // Update history table for quiet moves that cause beta cutoffs
+                // Update history table and killer table for quiet moves that cause beta cutoffs
                 if !chess_move.capture {
                     history_table.increment(&chess_move, depth);
+                    killer_table.store(ply, chess_move);
                 }
 
                 tt.store(
@@ -753,13 +817,14 @@ impl Minimax {
         moves.sort_by_key(|m| Self::move_priority(board, m));
     }
 
-    /// Enhanced move ordering with PV-first and history heuristic.
+    /// Enhanced move ordering with PV-first, killer moves, and history heuristic.
     ///
     /// Priority order:
     /// 1. PV move (from previous iteration)
     /// 2. TT move (from transposition table)
     /// 3. Captures sorted by MVV-LVA
-    /// 4. Quiet moves sorted by history score
+    /// 4. Killer moves (quiet moves that caused beta cutoffs at this ply)
+    /// 5. Quiet moves sorted by history score
     ///
     /// This method operates in-place on the provided buffer for better performance.
     fn order_moves_with_history(
@@ -767,6 +832,8 @@ impl Minimax {
         moves: &mut [ChessMove],
         tt: &mut TranspositionTable,
         history: &HistoryTable,
+        killers: &KillerTable,
+        ply: usize,
         pv_move: Option<ChessMove>,
     ) {
         if moves.is_empty() {
@@ -793,42 +860,33 @@ impl Minimax {
             priority_index += 1;
         }
 
-        // 3. Sort remaining moves by combined priority
-        // (captures by MVV-LVA, quiet moves by history score)
-        moves[priority_index..]
-            .sort_by_key(|m| Self::move_priority_with_history(board, m, history));
-    }
+        // 3. Sort remaining moves:
+        //    - Captures first (MVV-LVA)
+        //    - Killer moves second
+        //    - Quiet moves by history score
+        let [killer1, killer2] = killers.get(ply);
 
-    /// Calculate move priority combining MVV-LVA for captures and history for quiet moves.
-    fn move_priority_with_history(
-        board: &Board,
-        chess_move: &ChessMove,
-        history: &HistoryTable,
-    ) -> i32 {
-        if chess_move.capture {
-            // Captures: use MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
-            let victim_value = if let Some((_, piece)) = board.piece_on(chess_move.to as u8) {
-                Self::piece_value(piece)
+        moves[priority_index..].sort_by_key(|m| {
+            if m.capture {
+                // Captures: MVV-LVA with large offset to sort before quiet moves
+                let victim = board
+                    .piece_on(m.to as u8)
+                    .map(|(_, p)| Self::piece_value(p))
+                    .unwrap_or(100);
+                let attacker = board
+                    .piece_on(m.from as u8)
+                    .map(|(_, p)| Self::piece_value(p))
+                    .unwrap_or(0);
+                -(victim * 10 - attacker + 200_000)
+            } else if Some(*m) == killer1 {
+                -150_000
+            } else if Some(*m) == killer2 {
+                -140_000
             } else {
-                100 // En passant captures a pawn
-            };
-
-            let attacker_value = if let Some((_, piece)) = board.piece_on(chess_move.from as u8) {
-                Self::piece_value(piece)
-            } else {
-                0 // Shouldn't happen
-            };
-
-            // MVV-LVA: High victim value, low attacker value = best
-            // victim_value * 10 - attacker_value ensures victim is primary factor
-            // Negative for descending sort order
-            // Add large offset to ensure captures are always before quiet moves
-            -(victim_value * 10 - attacker_value + 100_000)
-        } else {
-            // Quiet moves: use history heuristic score
-            // Negative to sort in descending order (higher history score = better)
-            -history.get(chess_move)
-        }
+                // History score (cap to prevent overflow issues)
+                -history.get(m).min(100_000)
+            }
+        });
     }
 
     fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
