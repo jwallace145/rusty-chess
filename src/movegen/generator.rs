@@ -1,4 +1,4 @@
-use crate::board::{Board, ChessMove, Color, Piece, chess_move::ChessMoveType};
+use crate::board::{Board, ChessMove, Color, Piece};
 
 pub struct MoveGenerator;
 
@@ -65,31 +65,20 @@ impl MoveGenerator {
                 if to_rank == promo_rank {
                     // Promotion
                     for promo_piece in [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight] {
-                        moves.push(ChessMove {
-                            from: from as usize,
-                            to: to_sq as usize,
-                            capture: false,
-                            move_type: ChessMoveType::Promotion(promo_piece),
-                        });
+                        moves.push(ChessMove::new_promotion(
+                            from as usize,
+                            to_sq as usize,
+                            promo_piece,
+                        ));
                     }
                 } else {
-                    moves.push(ChessMove {
-                        from: from as usize,
-                        to: to_sq as usize,
-                        capture: false,
-                        move_type: ChessMoveType::Normal,
-                    });
+                    moves.push(ChessMove::new(from as usize, to_sq as usize));
 
                     // Double push from starting position
                     if from_rank == start_rank {
                         let to_sq2 = (from as i8 + 2 * forward) as u8;
                         if (empty & (1u64 << to_sq2)) != 0 {
-                            moves.push(ChessMove {
-                                from: from as usize,
-                                to: to_sq2 as usize,
-                                capture: false,
-                                move_type: ChessMoveType::Normal,
-                            });
+                            moves.push(ChessMove::new(from as usize, to_sq2 as usize));
                         }
                     }
                 }
@@ -107,20 +96,14 @@ impl MoveGenerator {
                 if to_rank == promo_rank {
                     // Capture promotion
                     for promo_piece in [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight] {
-                        moves.push(ChessMove {
-                            from: from as usize,
-                            to: to as usize,
-                            capture: true,
-                            move_type: ChessMoveType::Promotion(promo_piece),
-                        });
+                        moves.push(ChessMove::new_promotion(
+                            from as usize,
+                            to as usize,
+                            promo_piece,
+                        ));
                     }
                 } else {
-                    moves.push(ChessMove {
-                        from: from as usize,
-                        to: to as usize,
-                        capture: true,
-                        move_type: ChessMoveType::Normal,
-                    });
+                    moves.push(ChessMove::new(from as usize, to as usize));
                 }
             }
 
@@ -128,12 +111,7 @@ impl MoveGenerator {
             if board.en_passant < 64 {
                 let ep_square = board.en_passant;
                 if (attacks & (1u64 << ep_square)) != 0 {
-                    moves.push(ChessMove {
-                        from: from as usize,
-                        to: ep_square as usize,
-                        capture: true,
-                        move_type: ChessMoveType::EnPassant,
-                    });
+                    moves.push(ChessMove::new_en_passant(from as usize, ep_square as usize));
                 }
             }
         }
@@ -154,13 +132,7 @@ impl MoveGenerator {
                 let to = targets.trailing_zeros() as u8;
                 targets &= targets - 1;
 
-                let is_capture = (board.occupancy(color.opponent()) & (1u64 << to)) != 0;
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: to as usize,
-                    capture: is_capture,
-                    move_type: ChessMoveType::Normal,
-                });
+                moves.push(ChessMove::new(from as usize, to as usize));
             }
         }
     }
@@ -180,13 +152,7 @@ impl MoveGenerator {
                 let to = targets.trailing_zeros() as u8;
                 targets &= targets - 1;
 
-                let is_capture = (board.occupancy(color.opponent()) & (1u64 << to)) != 0;
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: to as usize,
-                    capture: is_capture,
-                    move_type: ChessMoveType::Normal,
-                });
+                moves.push(ChessMove::new(from as usize, to as usize));
             }
         }
     }
@@ -206,13 +172,7 @@ impl MoveGenerator {
                 let to = targets.trailing_zeros() as u8;
                 targets &= targets - 1;
 
-                let is_capture = (board.occupancy(color.opponent()) & (1u64 << to)) != 0;
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: to as usize,
-                    capture: is_capture,
-                    move_type: ChessMoveType::Normal,
-                });
+                moves.push(ChessMove::new(from as usize, to as usize));
             }
         }
     }
@@ -232,13 +192,7 @@ impl MoveGenerator {
                 let to = targets.trailing_zeros() as u8;
                 targets &= targets - 1;
 
-                let is_capture = (board.occupancy(color.opponent()) & (1u64 << to)) != 0;
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: to as usize,
-                    capture: is_capture,
-                    move_type: ChessMoveType::Normal,
-                });
+                moves.push(ChessMove::new(from as usize, to as usize));
             }
         }
     }
@@ -255,13 +209,7 @@ impl MoveGenerator {
             let to = targets.trailing_zeros() as u8;
             targets &= targets - 1;
 
-            let is_capture = (board.occupancy(color.opponent()) & (1u64 << to)) != 0;
-            moves.push(ChessMove {
-                from: king_sq as usize,
-                to: to as usize,
-                capture: is_capture,
-                move_type: ChessMoveType::Normal,
-            });
+            moves.push(ChessMove::new(king_sq as usize, to as usize));
         }
 
         // Castling
@@ -269,12 +217,12 @@ impl MoveGenerator {
     }
 
     fn generate_castling_moves(board: &Board, color: Color, moves: &mut Vec<ChessMove>) {
-        use crate::board::castling::Side;
+        use crate::board::castling::CastlingSide;
 
         match color {
             Color::White => {
                 // Kingside castling
-                if board.castling.has(Color::White, Side::KingSide) {
+                if board.castling.has(Color::White, CastlingSide::KingSide) {
                     let king_sq = 4; // e1
 
                     // Check if squares between king and rook are empty
@@ -284,19 +232,14 @@ impl MoveGenerator {
                             // Check if king doesn't move through check (f1)
                             if !board.is_square_attacked(5, Color::Black) {
                                 // Check if king doesn't land in check (g1) - this will be verified later
-                                moves.push(ChessMove {
-                                    from: king_sq,
-                                    to: 6, // g1
-                                    capture: false,
-                                    move_type: ChessMoveType::Castle,
-                                });
+                                moves.push(ChessMove::new_castle(king_sq, 6));
                             }
                         }
                     }
                 }
 
                 // Queenside castling
-                if board.castling.has(Color::White, Side::QueenSide) {
+                if board.castling.has(Color::White, CastlingSide::QueenSide) {
                     let king_sq = 4; // e1
 
                     // Check if squares between king and rook are empty
@@ -308,12 +251,7 @@ impl MoveGenerator {
                         if !board.in_check(Color::White) {
                             // Check if king doesn't move through check (d1)
                             if !board.is_square_attacked(3, Color::Black) {
-                                moves.push(ChessMove {
-                                    from: king_sq,
-                                    to: 2, // c1
-                                    capture: false,
-                                    move_type: ChessMoveType::Castle,
-                                });
+                                moves.push(ChessMove::new_castle(king_sq, 2));
                             }
                         }
                     }
@@ -321,7 +259,7 @@ impl MoveGenerator {
             }
             Color::Black => {
                 // Kingside castling
-                if board.castling.has(Color::Black, Side::KingSide) {
+                if board.castling.has(Color::Black, CastlingSide::KingSide) {
                     let king_sq = 60; // e8
 
                     // Check if squares between king and rook are empty
@@ -330,19 +268,14 @@ impl MoveGenerator {
                         if !board.in_check(Color::Black) {
                             // Check if king doesn't move through check (f8)
                             if !board.is_square_attacked(61, Color::White) {
-                                moves.push(ChessMove {
-                                    from: king_sq,
-                                    to: 62, // g8
-                                    capture: false,
-                                    move_type: ChessMoveType::Castle,
-                                });
+                                moves.push(ChessMove::new_castle(king_sq, 62));
                             }
                         }
                     }
                 }
 
                 // Queenside castling
-                if board.castling.has(Color::Black, Side::QueenSide) {
+                if board.castling.has(Color::Black, CastlingSide::QueenSide) {
                     let king_sq = 60; // e8
 
                     // Check if squares between king and rook are empty
@@ -354,12 +287,7 @@ impl MoveGenerator {
                         if !board.in_check(Color::Black) {
                             // Check if king doesn't move through check (d8)
                             if !board.is_square_attacked(59, Color::White) {
-                                moves.push(ChessMove {
-                                    from: king_sq,
-                                    to: 58, // c8
-                                    capture: false,
-                                    move_type: ChessMoveType::Castle,
-                                });
+                                moves.push(ChessMove::new_castle(king_sq, 58));
                             }
                         }
                     }
@@ -388,19 +316,15 @@ mod tests {
 
     #[test]
     fn test_simple_pawn_moves() {
-        // Test basic pawn move generation
         let mut board = Board::new_empty();
 
-        // White pawn on e2
-        board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 12; // e2
-        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.pieces[Color::White as usize][Piece::Pawn as usize] = 1u64 << 12;
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4;
         board.king_sq[Color::White as usize] = 4;
 
-        // Black king far away
-        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60; // e8
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 60;
         board.king_sq[Color::Black as usize] = 60;
 
-        // Update occupancy
         board.occ[Color::White as usize] = (1u64 << 12) | (1u64 << 4);
         board.occ[Color::Black as usize] = 1u64 << 60;
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
@@ -410,27 +334,20 @@ mod tests {
         let mut moves = Vec::new();
         MoveGenerator::generate_legal_moves(&board, &mut moves);
 
-        // Pawn on e2 should be able to move to e3 and e4 (2 moves)
-        // King on e1 should be able to move to d1, f1, d2, f2 (4 moves) - e2 is blocked by pawn
-        // Total: 6 moves
         assert_eq!(moves.len(), 6);
     }
 
     #[test]
     fn test_no_moves_in_checkmate() {
-        // Create a simple checkmate position
         let mut board = Board::new_empty();
 
-        // White king in corner
-        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 0; // a1
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 0;
         board.king_sq[Color::White as usize] = 0;
 
-        // Black queen and king for checkmate
-        board.pieces[Color::Black as usize][Piece::Queen as usize] = 1u64 << 9; // b2
-        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 18; // c3
+        board.pieces[Color::Black as usize][Piece::Queen as usize] = 1u64 << 9;
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 18;
         board.king_sq[Color::Black as usize] = 18;
 
-        // Update occupancy
         board.occ[Color::White as usize] = 1u64 << 0;
         board.occ[Color::Black as usize] = (1u64 << 9) | (1u64 << 18);
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
@@ -440,25 +357,20 @@ mod tests {
         let mut moves = Vec::new();
         MoveGenerator::generate_legal_moves(&board, &mut moves);
 
-        // White should have no legal moves (checkmated)
         assert_eq!(moves.len(), 0);
     }
 
     #[test]
     fn test_king_cannot_move_into_check() {
-        // King can't move into check
         let mut board = Board::new_empty();
 
-        // White king in center
-        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 28; // e4
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 28;
         board.king_sq[Color::White as usize] = 28;
 
-        // Black rook attacking e5
-        board.pieces[Color::Black as usize][Piece::Rook as usize] = 1u64 << 60; // e8
-        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 63; // h8
+        board.pieces[Color::Black as usize][Piece::Rook as usize] = 1u64 << 60;
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 63;
         board.king_sq[Color::Black as usize] = 63;
 
-        // Update occupancy
         board.occ[Color::White as usize] = 1u64 << 28;
         board.occ[Color::Black as usize] = (1u64 << 60) | (1u64 << 63);
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
@@ -468,35 +380,28 @@ mod tests {
         let mut moves = Vec::new();
         MoveGenerator::generate_legal_moves(&board, &mut moves);
 
-        // King should not be able to move to e5 (checked by rook)
-        let e5_move = moves.iter().find(|m| m.to == 36); // e5 = 36
+        let e5_move = moves.iter().find(|m| m.to() == 36);
         assert!(
             e5_move.is_none(),
             "King should not be able to move into check"
         );
 
-        // But king should still have other legal moves
         assert!(!moves.is_empty());
     }
 
     #[test]
     fn test_pinned_piece_cannot_move() {
-        // A pinned piece cannot move if it exposes the king
         let mut board = Board::new_empty();
 
-        // White king on e1
-        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4; // e1
+        board.pieces[Color::White as usize][Piece::King as usize] = 1u64 << 4;
         board.king_sq[Color::White as usize] = 4;
 
-        // White rook on e2 (pinned)
-        board.pieces[Color::White as usize][Piece::Rook as usize] = 1u64 << 12; // e2
+        board.pieces[Color::White as usize][Piece::Rook as usize] = 1u64 << 12;
 
-        // Black rook on e8 (pinning the white rook)
-        board.pieces[Color::Black as usize][Piece::Rook as usize] = 1u64 << 60; // e8
-        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 63; // h8
+        board.pieces[Color::Black as usize][Piece::Rook as usize] = 1u64 << 60;
+        board.pieces[Color::Black as usize][Piece::King as usize] = 1u64 << 63;
         board.king_sq[Color::Black as usize] = 63;
 
-        // Update occupancy
         board.occ[Color::White as usize] = (1u64 << 4) | (1u64 << 12);
         board.occ[Color::Black as usize] = (1u64 << 60) | (1u64 << 63);
         board.occ_all = board.occ[Color::White as usize] | board.occ[Color::Black as usize];
@@ -506,12 +411,9 @@ mod tests {
         let mut moves = Vec::new();
         MoveGenerator::generate_legal_moves(&board, &mut moves);
 
-        // The white rook should not be able to move horizontally (only vertically along the pin)
-        // It can only move to e3-e7 (capturing the black rook)
         for mv in &moves {
-            if mv.from == 12 {
-                // e2
-                let to_file = mv.to % 8;
+            if mv.from() == 12 {
+                let to_file = mv.to() % 8;
                 assert_eq!(to_file, 4, "Pinned rook should only move along the e-file");
             }
         }

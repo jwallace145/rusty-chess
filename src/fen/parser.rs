@@ -1,4 +1,4 @@
-use crate::board::{CastlingRights, Color, Piece, castling::Side};
+use crate::board::{CastlingRights, Color, Piece, castling::CastlingSide};
 use std::fmt;
 
 /// Represents a piece on a square with its color
@@ -149,7 +149,7 @@ impl ParsedFEN {
     }
 
     /// Check if a specific castling right is available
-    pub fn can_castle(&self, color: Color, side: Side) -> bool {
+    pub fn can_castle(&self, color: Color, side: CastlingSide) -> bool {
         self.castling_rights.has(color, side)
     }
 
@@ -206,16 +206,28 @@ impl ParsedFEN {
         // Castling rights
         fen.push(' ');
         let mut castling = String::new();
-        if self.castling_rights.has(Color::White, Side::KingSide) {
+        if self
+            .castling_rights
+            .has(Color::White, CastlingSide::KingSide)
+        {
             castling.push('K');
         }
-        if self.castling_rights.has(Color::White, Side::QueenSide) {
+        if self
+            .castling_rights
+            .has(Color::White, CastlingSide::QueenSide)
+        {
             castling.push('Q');
         }
-        if self.castling_rights.has(Color::Black, Side::KingSide) {
+        if self
+            .castling_rights
+            .has(Color::Black, CastlingSide::KingSide)
+        {
             castling.push('k');
         }
-        if self.castling_rights.has(Color::Black, Side::QueenSide) {
+        if self
+            .castling_rights
+            .has(Color::Black, CastlingSide::QueenSide)
+        {
             castling.push('q');
         }
         if castling.is_empty() {
@@ -402,10 +414,10 @@ impl FENParser {
 
         for ch in castling.chars() {
             match ch {
-                'K' => rights.add(Color::White, Side::KingSide),
-                'Q' => rights.add(Color::White, Side::QueenSide),
-                'k' => rights.add(Color::Black, Side::KingSide),
-                'q' => rights.add(Color::Black, Side::QueenSide),
+                'K' => rights.add(Color::White, CastlingSide::KingSide),
+                'Q' => rights.add(Color::White, CastlingSide::QueenSide),
+                'k' => rights.add(Color::Black, CastlingSide::KingSide),
+                'q' => rights.add(Color::Black, CastlingSide::QueenSide),
                 _ => return Err(FENParseError::InvalidCastlingChar(ch)),
             }
         }
@@ -469,10 +481,10 @@ mod tests {
         assert!(parsed.en_passant_square.is_none());
 
         // Check castling rights
-        assert!(parsed.can_castle(Color::White, Side::KingSide));
-        assert!(parsed.can_castle(Color::White, Side::QueenSide));
-        assert!(parsed.can_castle(Color::Black, Side::KingSide));
-        assert!(parsed.can_castle(Color::Black, Side::QueenSide));
+        assert!(parsed.can_castle(Color::White, CastlingSide::KingSide));
+        assert!(parsed.can_castle(Color::White, CastlingSide::QueenSide));
+        assert!(parsed.can_castle(Color::Black, CastlingSide::KingSide));
+        assert!(parsed.can_castle(Color::Black, CastlingSide::QueenSide));
 
         // Check some pieces
         assert_eq!(
@@ -514,10 +526,10 @@ mod tests {
         let fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w - - 0 1";
         let parsed = FENParser::parse(fen).unwrap();
 
-        assert!(!parsed.can_castle(Color::White, Side::KingSide));
-        assert!(!parsed.can_castle(Color::White, Side::QueenSide));
-        assert!(!parsed.can_castle(Color::Black, Side::KingSide));
-        assert!(!parsed.can_castle(Color::Black, Side::QueenSide));
+        assert!(!parsed.can_castle(Color::White, CastlingSide::KingSide));
+        assert!(!parsed.can_castle(Color::White, CastlingSide::QueenSide));
+        assert!(!parsed.can_castle(Color::Black, CastlingSide::KingSide));
+        assert!(!parsed.can_castle(Color::Black, CastlingSide::QueenSide));
     }
 
     #[test]
@@ -526,10 +538,10 @@ mod tests {
         let parsed = FENParser::parse(fen).unwrap();
 
         assert_eq!(parsed.active_color, Color::Black);
-        assert!(parsed.can_castle(Color::White, Side::KingSide));
-        assert!(!parsed.can_castle(Color::White, Side::QueenSide));
-        assert!(!parsed.can_castle(Color::Black, Side::KingSide));
-        assert!(parsed.can_castle(Color::Black, Side::QueenSide));
+        assert!(parsed.can_castle(Color::White, CastlingSide::KingSide));
+        assert!(!parsed.can_castle(Color::White, CastlingSide::QueenSide));
+        assert!(!parsed.can_castle(Color::Black, CastlingSide::KingSide));
+        assert!(parsed.can_castle(Color::Black, CastlingSide::QueenSide));
         assert_eq!(parsed.halfmove_clock, 5);
         assert_eq!(parsed.fullmove_number, 10);
     }

@@ -26,13 +26,13 @@ impl HistoryTable {
 
     /// Get the history score for a move
     pub fn get(&self, chess_move: &ChessMove) -> i32 {
-        self.scores[chess_move.from][chess_move.to]
+        self.scores[chess_move.from()][chess_move.to()]
     }
 
     /// Increment history score for a move that caused a beta cutoff
     pub fn increment(&mut self, chess_move: &ChessMove, depth: u8) {
-        let from = chess_move.from;
-        let to = chess_move.to;
+        let from = chess_move.from();
+        let to = chess_move.to();
         // Bonus based on depth: deeper searches get higher bonuses
         self.scores[from][to] += (depth as i32) * (depth as i32);
     }
@@ -70,7 +70,7 @@ impl KillerTable {
 
     /// Store a killer move (quiet moves only)
     pub fn store(&mut self, ply: usize, mv: ChessMove) {
-        if ply >= MAX_PLY || mv.capture {
+        if ply >= MAX_PLY {
             return;
         }
         // Don't store duplicates
@@ -616,7 +616,9 @@ impl Minimax {
                 metrics.beta_cutoffs += 1;
 
                 // Update history table and killer table for quiet moves that cause beta cutoffs
-                if !chess_move.capture {
+                let is_capture =
+                    board.piece_on(chess_move.to() as u8).is_some() || chess_move.is_en_passant();
+                if !is_capture {
                     history_table.increment(&chess_move, depth);
                     killer_table.store(ply, chess_move);
                 }
@@ -867,14 +869,15 @@ impl Minimax {
         let [killer1, killer2] = killers.get(ply);
 
         moves[priority_index..].sort_by_key(|m| {
-            if m.capture {
+            let is_capture = board.piece_on(m.to() as u8).is_some() || m.is_en_passant();
+            if is_capture {
                 // Captures: MVV-LVA with large offset to sort before quiet moves
                 let victim = board
-                    .piece_on(m.to as u8)
+                    .piece_on(m.to() as u8)
                     .map(|(_, p)| Self::piece_value(p))
                     .unwrap_or(100);
                 let attacker = board
-                    .piece_on(m.from as u8)
+                    .piece_on(m.from() as u8)
                     .map(|(_, p)| Self::piece_value(p))
                     .unwrap_or(0);
                 -(victim * 10 - attacker + 200_000)
@@ -890,15 +893,17 @@ impl Minimax {
     }
 
     fn move_priority(board: &Board, chess_move: &ChessMove) -> i32 {
-        if chess_move.capture {
-            let victim_value = if let Some((_, piece)) = board.piece_on(chess_move.to as u8) {
+        let is_capture =
+            board.piece_on(chess_move.to() as u8).is_some() || chess_move.is_en_passant();
+        if is_capture {
+            let victim_value = if let Some((_, piece)) = board.piece_on(chess_move.to() as u8) {
                 Self::piece_value(piece)
             } else {
                 100 // En passant captures a pawn
             };
 
             // Get attacker value
-            let attacker_value = if let Some((_, piece)) = board.piece_on(chess_move.from as u8) {
+            let attacker_value = if let Some((_, piece)) = board.piece_on(chess_move.from() as u8) {
                 Self::piece_value(piece)
             } else {
                 0 // Shouldn't happen
@@ -930,7 +935,6 @@ impl Minimax {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::chess_move::ChessMoveType;
     use crate::board::{Color, Piece};
 
     #[test]
@@ -978,24 +982,9 @@ mod tests {
     #[test]
     fn test_finds_checkmate_fools_game() {
         let mut board = Board::startpos();
-        board.make_move(ChessMove {
-            from: pos("f2"),
-            to: pos("f3"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-        board.make_move(ChessMove {
-            from: pos("e7"),
-            to: pos("e5"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
-        board.make_move(ChessMove {
-            from: pos("g2"),
-            to: pos("g4"),
-            capture: false,
-            move_type: ChessMoveType::Normal,
-        });
+        board.make_move(ChessMove::new(pos("f2"), pos("f3")));
+        board.make_move(ChessMove::new(pos("e7"), pos("e5")));
+        board.make_move(ChessMove::new(pos("g2"), pos("g4")));
 
         let minimax = Minimax::new();
         let mut tt = TranspositionTable::new_with_entries(1024);

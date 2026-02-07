@@ -1,4 +1,4 @@
-use crate::board::{Board, ChessMove, Color, Piece, chess_move::ChessMoveType};
+use crate::board::{Board, ChessMove, Color, Piece};
 use crate::eval::Evaluator;
 
 /// Generates noisy moves: captures, pawn promotions, and en passant.
@@ -52,12 +52,11 @@ fn generate_pawn_noisy_moves(board: &Board, color: Color, them: u64, moves: &mut
             let to_rank = to_sq / 8;
             if to_rank == promo_rank {
                 for promo_piece in [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight] {
-                    moves.push(ChessMove {
-                        from: from as usize,
-                        to: to_sq as usize,
-                        capture: false,
-                        move_type: ChessMoveType::Promotion(promo_piece),
-                    });
+                    moves.push(ChessMove::new_promotion(
+                        from as usize,
+                        to_sq as usize,
+                        promo_piece,
+                    ));
                 }
             }
         }
@@ -74,20 +73,14 @@ fn generate_pawn_noisy_moves(board: &Board, color: Color, them: u64, moves: &mut
             if to_rank == promo_rank {
                 // Capture promotion
                 for promo_piece in [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight] {
-                    moves.push(ChessMove {
-                        from: from as usize,
-                        to: to as usize,
-                        capture: true,
-                        move_type: ChessMoveType::Promotion(promo_piece),
-                    });
+                    moves.push(ChessMove::new_promotion(
+                        from as usize,
+                        to as usize,
+                        promo_piece,
+                    ));
                 }
             } else {
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: to as usize,
-                    capture: true,
-                    move_type: ChessMoveType::Normal,
-                });
+                moves.push(ChessMove::new(from as usize, to as usize));
             }
         }
 
@@ -95,12 +88,7 @@ fn generate_pawn_noisy_moves(board: &Board, color: Color, them: u64, moves: &mut
         if board.en_passant < 64 {
             let ep_square = board.en_passant;
             if (attacks & (1u64 << ep_square)) != 0 {
-                moves.push(ChessMove {
-                    from: from as usize,
-                    to: ep_square as usize,
-                    capture: true,
-                    move_type: ChessMoveType::EnPassant,
-                });
+                moves.push(ChessMove::new_en_passant(from as usize, ep_square as usize));
             }
         }
     }
@@ -127,12 +115,7 @@ fn generate_piece_captures(
             let to = captures.trailing_zeros() as u8;
             captures &= captures - 1;
 
-            moves.push(ChessMove {
-                from: from as usize,
-                to: to as usize,
-                capture: true,
-                move_type: ChessMoveType::Normal,
-            });
+            moves.push(ChessMove::new(from as usize, to as usize));
         }
     }
 }
@@ -147,12 +130,7 @@ fn generate_king_captures(board: &Board, color: Color, them: u64, moves: &mut Ve
         let to = captures.trailing_zeros() as u8;
         captures &= captures - 1;
 
-        moves.push(ChessMove {
-            from: king_sq as usize,
-            to: to as usize,
-            capture: true,
-            move_type: ChessMoveType::Normal,
-        });
+        moves.push(ChessMove::new(king_sq as usize, to as usize));
     }
 }
 
@@ -177,23 +155,24 @@ fn filter_illegal_moves(board: &Board, moves: &mut Vec<ChessMove>) {
 /// This improves alpha-beta pruning efficiency in quiescence search.
 fn order_noisy_moves(board: &Board, moves: &mut [ChessMove]) {
     moves.sort_by_key(|m| {
+        let is_capture = board.piece_on(m.to() as u8).is_some() || m.is_en_passant();
         // Get victim value
-        let victim_value = if m.capture {
-            if let Some((_, piece)) = board.piece_on(m.to as u8) {
+        let victim_value = if is_capture {
+            if let Some((_, piece)) = board.piece_on(m.to() as u8) {
                 piece_value(piece)
             } else {
                 100 // En passant captures a pawn
             }
         } else {
             // Non-capture promotion - treat as high priority
-            if matches!(m.move_type, ChessMoveType::Promotion(_)) {
+            if m.is_promotion() {
                 return -10000; // Promotions first
             }
             0
         };
 
         // Get attacker value
-        let attacker_value = if let Some((_, piece)) = board.piece_on(m.from as u8) {
+        let attacker_value = if let Some((_, piece)) = board.piece_on(m.from() as u8) {
             piece_value(piece)
         } else {
             0
@@ -307,9 +286,8 @@ mod tests {
 
         // Should have exactly one capture: d4xe5
         assert_eq!(moves.len(), 1);
-        assert_eq!(moves[0].from, 27); // d4
-        assert_eq!(moves[0].to, 36); // e5
-        assert!(moves[0].capture);
+        assert_eq!(moves[0].from(), 27); // d4
+        assert_eq!(moves[0].to(), 36); // e5
     }
 
     #[test]
@@ -338,9 +316,9 @@ mod tests {
         // Should have 4 promotion moves (Q, R, B, N)
         assert_eq!(moves.len(), 4);
         for mv in &moves {
-            assert!(matches!(mv.move_type, ChessMoveType::Promotion(_)));
-            assert_eq!(mv.from, 52); // e7
-            assert_eq!(mv.to, 60); // e8
+            assert!(mv.is_promotion());
+            assert_eq!(mv.from(), 52); // e7
+            assert_eq!(mv.to(), 60); // e8
         }
     }
 

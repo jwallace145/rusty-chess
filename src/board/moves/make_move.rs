@@ -1,49 +1,41 @@
-use super::Board;
-use crate::board::{CastlingRights, ChessMove, ChessMoveState, ChessMoveType, Color, Piece};
+use crate::board::castling::CastlingSide;
+use crate::board::{Board, Color, Piece};
 use crate::movegen::MoveGenerator;
 use crate::search::{CastlingRight, ZobristTable};
 
-impl Board {
-    // Move generation
+use super::{ChessMove, MoveUndo};
 
+impl Board {
     pub fn generate_moves(&self, moves: &mut Vec<ChessMove>) {
         MoveGenerator::generate_legal_moves(self, moves);
     }
 
-    // State operations
-
-    pub fn make_move(&mut self, mv: ChessMove) -> ChessMoveState {
-        let from: u8 = mv.from as u8;
-        let to: u8 = mv.to as u8;
+    pub fn make_move(&mut self, mv: ChessMove) -> MoveUndo {
+        let from = mv.from();
+        let to = mv.to();
         let from_mask: u64 = 1u64 << from;
         let to_mask: u64 = 1u64 << to;
 
-        // Get the piece being moved and optional captured piece
-        let moved_piece: Option<(Color, Piece)> = self.piece_on(from);
-        let captured_piece: Option<(Color, Piece)> = self.piece_on(to);
+        // Get the piece being moved and optional captured piece at destination
+        let moved_piece: Option<(Color, Piece)> = self.piece_on(from as u8);
+        let captured_piece_at_to: Option<(Color, Piece)> = self.piece_on(to as u8);
+
+        // Determine captured piece (EP captures a pawn not at the to square)
+        let captured_piece: Option<Piece> = if mv.is_en_passant() {
+            Some(Piece::Pawn)
+        } else {
+            captured_piece_at_to.map(|(_, p)| p)
+        };
+        let is_capture = captured_piece.is_some();
 
         // Save current state for undo
-        // We repurpose the king_moved/rook_moved fields to encode castling rights
-        use crate::board::castling::Side;
-        let state = ChessMoveState {
+        let undo = MoveUndo {
             chess_move: mv,
-            moved_piece: moved_piece.map(|(c, p)| (p, c)),
-            captured_piece: captured_piece.map(|(c, p)| (p, c)),
-            previous_side_to_move: self.side_to_move,
-            // Encode castling rights in these boolean fields
-            white_king_moved: !self.castling.has(Color::White, Side::KingSide),
-            white_kingside_rook_moved: !self.castling.has(Color::White, Side::QueenSide),
-            white_queenside_rook_moved: self.halfmove_clock > 127, // Use high bit for halfmove overflow
-            black_king_moved: !self.castling.has(Color::Black, Side::KingSide),
-            black_kingside_rook_moved: !self.castling.has(Color::Black, Side::QueenSide),
-            black_queenside_rook_moved: false, // Reserved for future use
-            previous_en_passant: if self.en_passant < 64 {
-                Some(self.en_passant as usize)
-            } else {
-                None
-            },
-            previous_zobrist_hash: self.hash,
+            captured_piece,
+            previous_castling: self.castling,
+            previous_en_passant: self.en_passant,
             previous_halfmove_clock: self.halfmove_clock,
+            previous_zobrist_hash: self.hash,
         };
 
         // Save castling rights and halfmove clock before the move
@@ -55,29 +47,26 @@ impl Board {
 
         // 1. XOR out piece at from square
         if let Some((moving_color, moving_piece)) = moved_piece {
-            self.hash ^= zobrist.piece(moving_piece, moving_color, from as usize);
+            self.hash ^= zobrist.piece(moving_piece, moving_color, from);
         }
 
         // 2. XOR out captured piece (if any)
-        if mv.capture {
-            if mv.move_type == ChessMoveType::EnPassant {
+        if is_capture {
+            if mv.is_en_passant() {
                 // En passant - the captured pawn is not on the to square
                 let captured_pawn_sq = match self.side_to_move {
                     Color::White => to - 8,
                     Color::Black => to + 8,
                 };
-                self.hash ^= zobrist.piece(
-                    Piece::Pawn,
-                    self.side_to_move.opponent(),
-                    captured_pawn_sq as usize,
-                );
-            } else if let Some((cap_color, cap_piece)) = captured_piece {
-                self.hash ^= zobrist.piece(cap_piece, cap_color, to as usize);
+                self.hash ^=
+                    zobrist.piece(Piece::Pawn, self.side_to_move.opponent(), captured_pawn_sq);
+            } else if let Some((cap_color, cap_piece)) = captured_piece_at_to {
+                self.hash ^= zobrist.piece(cap_piece, cap_color, to);
             }
         }
 
         // 3. XOR out rook if castling (will be moved to new square)
-        if mv.move_type == ChessMoveType::Castle {
+        if mv.is_castle() {
             match to {
                 6 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 7), // h1
                 2 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 0), // a1
@@ -88,16 +77,16 @@ impl Board {
         }
 
         // 4. XOR out old castling rights
-        if old_castling.has(Color::White, Side::KingSide) {
+        if old_castling.has(Color::White, CastlingSide::KingSide) {
             self.hash ^= zobrist.castling(CastlingRight::WhiteKingside);
         }
-        if old_castling.has(Color::White, Side::QueenSide) {
+        if old_castling.has(Color::White, CastlingSide::QueenSide) {
             self.hash ^= zobrist.castling(CastlingRight::WhiteQueenside);
         }
-        if old_castling.has(Color::Black, Side::KingSide) {
+        if old_castling.has(Color::Black, CastlingSide::KingSide) {
             self.hash ^= zobrist.castling(CastlingRight::BlackKingside);
         }
-        if old_castling.has(Color::Black, Side::QueenSide) {
+        if old_castling.has(Color::Black, CastlingSide::QueenSide) {
             self.hash ^= zobrist.castling(CastlingRight::BlackQueenside);
         }
 
@@ -119,8 +108,8 @@ impl Board {
             self.occ[moving_color as usize] &= !from_mask;
 
             // Handle captures
-            if mv.capture {
-                if mv.move_type == ChessMoveType::EnPassant {
+            if is_capture {
+                if mv.is_en_passant() {
                     // En passant - remove the captured pawn
                     let captured_pawn_sq = match moving_color {
                         Color::White => to - 8,
@@ -130,7 +119,7 @@ impl Board {
                     self.pieces[moving_color.opponent() as usize][Piece::Pawn as usize] &=
                         !captured_mask;
                     self.occ[moving_color.opponent() as usize] &= !captured_mask;
-                } else if let Some((cap_color, cap_piece)) = captured_piece {
+                } else if let Some((cap_color, cap_piece)) = captured_piece_at_to {
                     // Normal capture - remove piece from destination
                     self.pieces[cap_color as usize][cap_piece as usize] &= !to_mask;
                     self.occ[cap_color as usize] &= !to_mask;
@@ -138,7 +127,7 @@ impl Board {
             }
 
             // Handle promotions
-            let final_piece = if let ChessMoveType::Promotion(promo_piece) = mv.move_type {
+            let final_piece = if let Some(promo_piece) = mv.promotion_piece() {
                 promo_piece
             } else {
                 moving_piece
@@ -150,11 +139,11 @@ impl Board {
 
             // Update king position
             if moving_piece == Piece::King {
-                self.king_sq[moving_color as usize] = to;
+                self.king_sq[moving_color as usize] = to as u8;
             }
 
             // Handle castling rook move
-            if mv.move_type == ChessMoveType::Castle {
+            if mv.is_castle() {
                 match to {
                     6 => {
                         // White kingside: move rook from h1 to f1
@@ -190,29 +179,26 @@ impl Board {
 
             // Update castling rights
             if moving_piece == Piece::King {
-                use crate::board::castling::Side;
-                self.castling.remove(moving_color, Side::KingSide);
-                self.castling.remove(moving_color, Side::QueenSide);
+                self.castling.remove(moving_color, CastlingSide::KingSide);
+                self.castling.remove(moving_color, CastlingSide::QueenSide);
             } else if moving_piece == Piece::Rook {
-                use crate::board::castling::Side;
                 // Check which rook moved
                 match from {
-                    0 => self.castling.remove(Color::White, Side::QueenSide), // a1
-                    7 => self.castling.remove(Color::White, Side::KingSide),  // h1
-                    56 => self.castling.remove(Color::Black, Side::QueenSide), // a8
-                    63 => self.castling.remove(Color::Black, Side::KingSide), // h8
+                    0 => self.castling.remove(Color::White, CastlingSide::QueenSide), // a1
+                    7 => self.castling.remove(Color::White, CastlingSide::KingSide),  // h1
+                    56 => self.castling.remove(Color::Black, CastlingSide::QueenSide), // a8
+                    63 => self.castling.remove(Color::Black, CastlingSide::KingSide), // h8
                     _ => {}
                 }
             }
 
             // If a rook is captured, remove castling rights
-            if let Some((_cap_color, Piece::Rook)) = captured_piece {
-                use crate::board::castling::Side;
+            if let Some((_, Piece::Rook)) = captured_piece_at_to {
                 match to {
-                    0 => self.castling.remove(Color::White, Side::QueenSide), // a1
-                    7 => self.castling.remove(Color::White, Side::KingSide),  // h1
-                    56 => self.castling.remove(Color::Black, Side::QueenSide), // a8
-                    63 => self.castling.remove(Color::Black, Side::KingSide), // h8
+                    0 => self.castling.remove(Color::White, CastlingSide::QueenSide), // a1
+                    7 => self.castling.remove(Color::White, CastlingSide::KingSide),  // h1
+                    56 => self.castling.remove(Color::Black, CastlingSide::QueenSide), // a8
+                    63 => self.castling.remove(Color::Black, CastlingSide::KingSide), // h8
                     _ => {}
                 }
             }
@@ -229,14 +215,14 @@ impl Board {
                 if (from_rank as i8 - to_rank as i8).abs() == 2 {
                     // Set en passant square to the square the pawn skipped over
                     self.en_passant = match moving_color {
-                        Color::White => from + 8,
-                        Color::Black => from - 8,
+                        Color::White => (from + 8) as u8,
+                        Color::Black => (from - 8) as u8,
                     };
                 }
             }
 
             // Update halfmove clock (reset on pawn move or capture)
-            if moving_piece == Piece::Pawn || mv.capture {
+            if moving_piece == Piece::Pawn || is_capture {
                 self.halfmove_clock = 0;
             } else {
                 self.halfmove_clock += 1;
@@ -248,15 +234,15 @@ impl Board {
             // === INCREMENTAL ZOBRIST HASH UPDATE: XOR IN NEW STATE ===
 
             // 7. XOR in piece at to square (might be promoted)
-            let final_piece = if let ChessMoveType::Promotion(promo_piece) = mv.move_type {
+            let final_piece = if let Some(promo_piece) = mv.promotion_piece() {
                 promo_piece
             } else {
                 moving_piece
             };
-            self.hash ^= zobrist.piece(final_piece, moving_color, to as usize);
+            self.hash ^= zobrist.piece(final_piece, moving_color, to);
 
             // 8. XOR in rook at new position if castling
-            if mv.move_type == ChessMoveType::Castle {
+            if mv.is_castle() {
                 match to {
                     6 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 5), // f1
                     2 => self.hash ^= zobrist.piece(Piece::Rook, Color::White, 3), // d1
@@ -267,16 +253,16 @@ impl Board {
             }
 
             // 9. XOR in new castling rights
-            if self.castling.has(Color::White, Side::KingSide) {
+            if self.castling.has(Color::White, CastlingSide::KingSide) {
                 self.hash ^= zobrist.castling(CastlingRight::WhiteKingside);
             }
-            if self.castling.has(Color::White, Side::QueenSide) {
+            if self.castling.has(Color::White, CastlingSide::QueenSide) {
                 self.hash ^= zobrist.castling(CastlingRight::WhiteQueenside);
             }
-            if self.castling.has(Color::Black, Side::KingSide) {
+            if self.castling.has(Color::Black, CastlingSide::KingSide) {
                 self.hash ^= zobrist.castling(CastlingRight::BlackKingside);
             }
-            if self.castling.has(Color::Black, Side::QueenSide) {
+            if self.castling.has(Color::Black, CastlingSide::QueenSide) {
                 self.hash ^= zobrist.castling(CastlingRight::BlackQueenside);
             }
 
@@ -292,31 +278,27 @@ impl Board {
             }
         }
 
-        state
+        undo
     }
 
-    pub fn unmake_move(&mut self, state: ChessMoveState) {
-        use crate::board::chess_move::ChessMoveType;
-
-        let mv = state.chess_move;
-        let from = mv.from as u8;
-        let to = mv.to as u8;
+    pub fn unmake_move(&mut self, undo: MoveUndo) {
+        let mv = undo.chess_move;
+        let from = mv.from();
+        let to = mv.to();
         let from_mask = 1u64 << from;
         let to_mask = 1u64 << to;
 
-        // Restore side to move first
-        self.side_to_move = state.previous_side_to_move;
+        // Restore side to move (toggle back)
+        self.side_to_move = self.side_to_move.opponent();
+        let moving_color = self.side_to_move;
 
-        if let Some((moved_piece, moving_color)) = state.moved_piece {
-            // Determine the piece on the destination square (might be promoted)
-            let piece_on_dest = if let ChessMoveType::Promotion(_) = mv.move_type {
-                if let Some((_, p)) = self.piece_on(to) {
-                    p
-                } else {
-                    moved_piece
-                }
+        // Find the piece at the destination square
+        if let Some((_, piece_on_dest)) = self.piece_on(to as u8) {
+            // For promotion, the original piece was a Pawn
+            let original_piece = if mv.is_promotion() {
+                Piece::Pawn
             } else {
-                moved_piece
+                piece_on_dest
             };
 
             // Remove piece from destination square
@@ -324,16 +306,16 @@ impl Board {
             self.occ[moving_color as usize] &= !to_mask;
 
             // Restore piece to source square
-            self.pieces[moving_color as usize][moved_piece as usize] |= from_mask;
+            self.pieces[moving_color as usize][original_piece as usize] |= from_mask;
             self.occ[moving_color as usize] |= from_mask;
 
             // Restore king position if king was moved
-            if moved_piece == Piece::King {
-                self.king_sq[moving_color as usize] = from;
+            if original_piece == Piece::King {
+                self.king_sq[moving_color as usize] = from as u8;
             }
 
             // Handle castling undo
-            if mv.move_type == ChessMoveType::Castle {
+            if mv.is_castle() {
                 match to {
                     6 => {
                         // White kingside: move rook back from f1 to h1
@@ -368,8 +350,8 @@ impl Board {
             }
 
             // Restore captured piece
-            if mv.capture {
-                if mv.move_type == ChessMoveType::EnPassant {
+            if let Some(captured) = undo.captured_piece {
+                if mv.is_en_passant() {
                     // Restore en passant captured pawn
                     let captured_pawn_sq = match moving_color {
                         Color::White => to - 8,
@@ -379,10 +361,10 @@ impl Board {
                     self.pieces[moving_color.opponent() as usize][Piece::Pawn as usize] |=
                         captured_mask;
                     self.occ[moving_color.opponent() as usize] |= captured_mask;
-                } else if let Some((captured_piece, captured_color)) = state.captured_piece {
+                } else {
                     // Restore normal captured piece
-                    self.pieces[captured_color as usize][captured_piece as usize] |= to_mask;
-                    self.occ[captured_color as usize] |= to_mask;
+                    self.pieces[moving_color.opponent() as usize][captured as usize] |= to_mask;
+                    self.occ[moving_color.opponent() as usize] |= to_mask;
                 }
             }
 
@@ -390,29 +372,10 @@ impl Board {
             self.occ_all = self.occ[Color::White as usize] | self.occ[Color::Black as usize];
         }
 
-        // Restore en passant square
-        self.en_passant = state.previous_en_passant.map(|sq| sq as u8).unwrap_or(64);
-
-        // Restore castling rights from encoded boolean fields
-        use crate::board::castling::Side;
-        self.castling = CastlingRights::empty();
-        if !state.white_king_moved {
-            self.castling.add(Color::White, Side::KingSide);
-        }
-        if !state.white_kingside_rook_moved {
-            self.castling.add(Color::White, Side::QueenSide);
-        }
-        if !state.black_king_moved {
-            self.castling.add(Color::Black, Side::KingSide);
-        }
-        if !state.black_kingside_rook_moved {
-            self.castling.add(Color::Black, Side::QueenSide);
-        }
-
-        // Restore halfmove clock
-        self.halfmove_clock = state.previous_halfmove_clock;
-
-        // Restore zobrist hash
-        self.hash = state.previous_zobrist_hash;
+        // Restore state directly from undo
+        self.castling = undo.previous_castling;
+        self.en_passant = undo.previous_en_passant;
+        self.halfmove_clock = undo.previous_halfmove_clock;
+        self.hash = undo.previous_zobrist_hash;
     }
 }

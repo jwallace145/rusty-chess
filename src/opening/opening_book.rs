@@ -1,4 +1,4 @@
-use crate::board::{Board, ChessMove, ChessMoveType};
+use crate::board::{Board, ChessMove};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -71,20 +71,10 @@ pub fn create_basic_book() -> OpeningBook {
     let mut book = OpeningBook::new();
 
     // Helper to create a normal move
-    let mv = |from: usize, to: usize| ChessMove {
-        from,
-        to,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = |from: usize, to: usize| ChessMove::new(from, to);
 
     // Helper to create a capture move
-    let capture = |from: usize, to: usize| ChessMove {
-        from,
-        to,
-        capture: true,
-        move_type: ChessMoveType::Normal,
-    };
+    let capture = |from: usize, to: usize| ChessMove::new(from, to);
 
     // Square indices (rank * 8 + file, where a1 = 0)
     // Files: a=0, b=1, c=2, d=3, e=4, f=5, g=6, h=7
@@ -224,12 +214,7 @@ pub fn create_basic_book() -> OpeningBook {
     // If Black castles instead
     let mut main_line_oo = main_line;
     // Black castles kingside (e8-g8)
-    let castle_move = ChessMove {
-        from: 60, // e8
-        to: 62,   // g8
-        capture: false,
-        move_type: ChessMoveType::Castle,
-    };
+    let castle_move = ChessMove::new_castle(60, 62);
     main_line_oo.make_move(castle_move);
     book.add_move(main_line_oo.hash, mv(G1, F3)); // 6. Nf3 if not already played
 

@@ -87,15 +87,19 @@ fn main() {
     MoveGenerator::generate_legal_moves(&board, &mut moves);
     println!("Total legal moves: {}", moves.len());
     for (i, mv) in moves.iter().enumerate() {
-        let from = square_name(mv.from);
-        let to = square_name(mv.to);
         println!(
-            "  {:2}. {}{} (capture: {}, type: {:?})",
+            "  {:2}. {} ({})",
             i + 1,
-            from,
-            to,
-            mv.capture,
-            mv.move_type
+            mv.to_uci(),
+            if mv.is_castle() {
+                "castle"
+            } else if mv.is_en_passant() {
+                "en passant"
+            } else if mv.is_promotion() {
+                "promotion"
+            } else {
+                "normal"
+            }
         );
     }
     println!();
@@ -117,8 +121,8 @@ fn main() {
     if let Some(mv) = best_move_fresh {
         println!(
             "Best move (fresh TT): {}{}",
-            square_name(mv.from),
-            square_name(mv.to)
+            square_name(mv.from()),
+            square_name(mv.to())
         );
     } else {
         println!("Best move (fresh TT): None");
@@ -137,8 +141,8 @@ fn main() {
     if let Some(mv) = best_move_warm {
         println!(
             "Best move (warm TT): {}{}",
-            square_name(mv.from),
-            square_name(mv.to)
+            square_name(mv.from()),
+            square_name(mv.to())
         );
     } else {
         println!("Best move (warm TT): None");
@@ -159,13 +163,13 @@ fn main() {
                 println!("RESULT: Moves DIFFER!");
                 println!(
                     "  Fresh TT: {}{}",
-                    square_name(fresh.from),
-                    square_name(fresh.to)
+                    square_name(fresh.from()),
+                    square_name(fresh.to())
                 );
                 println!(
                     "  Warm TT:  {}{}",
-                    square_name(warm.from),
-                    square_name(warm.to)
+                    square_name(warm.from()),
+                    square_name(warm.to())
                 );
                 println!();
                 println!("DIAGNOSIS: The transposition table affects move selection.");
@@ -191,8 +195,8 @@ fn main() {
     if let Some(mv) = best_move_cleared {
         println!(
             "Best move (cleared TT): {}{}",
-            square_name(mv.from),
-            square_name(mv.to)
+            square_name(mv.from()),
+            square_name(mv.to())
         );
     }
 
@@ -217,8 +221,8 @@ fn main() {
     if let Some(mv) = best_move_new {
         println!(
             "Best move (new engine): {}{}",
-            square_name(mv.from),
-            square_name(mv.to)
+            square_name(mv.from()),
+            square_name(mv.to())
         );
     }
 
@@ -239,8 +243,8 @@ fn main() {
     if let Some(mv) = best_move_book {
         println!(
             "Best move (with book): {}{}",
-            square_name(mv.from),
-            square_name(mv.to)
+            square_name(mv.from()),
+            square_name(mv.to())
         );
     } else {
         println!("Best move (with book): None");

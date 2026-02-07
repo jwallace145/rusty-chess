@@ -1,4 +1,4 @@
-use crate::board::{Board, Color, Piece, castling::Side};
+use crate::board::{Board, Color, Piece, castling::CastlingSide};
 
 /// Convert a Board to a FEN string
 ///
@@ -51,16 +51,16 @@ pub fn board_fen(board: &Board) -> String {
     // Part 3: Castling availability
     fen.push(' ');
     let mut castling = String::new();
-    if board.castling.has(Color::White, Side::KingSide) {
+    if board.castling.has(Color::White, CastlingSide::KingSide) {
         castling.push('K');
     }
-    if board.castling.has(Color::White, Side::QueenSide) {
+    if board.castling.has(Color::White, CastlingSide::QueenSide) {
         castling.push('Q');
     }
-    if board.castling.has(Color::Black, Side::KingSide) {
+    if board.castling.has(Color::Black, CastlingSide::KingSide) {
         castling.push('k');
     }
-    if board.castling.has(Color::Black, Side::QueenSide) {
+    if board.castling.has(Color::Black, CastlingSide::QueenSide) {
         castling.push('q');
     }
     if castling.is_empty() {
