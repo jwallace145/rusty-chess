@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/jwallace145/rusty-chess/compare/v1.4.8...v1.5.0) (2026-02-07)
+
+
+### Features
+
+* **board:** Reduce memory footprint of ChessMove struct ([#26](https://github.com/jwallace145/rusty-chess/issues/26)) ([d9aed7f](https://github.com/jwallace145/rusty-chess/commit/d9aed7f041e96adaa3f94b6f841be2e580631cb5))
+
 ## [1.4.8](https://github.com/jwallace145/rusty-chess/compare/v1.4.7...v1.4.8) (2026-02-01)
 
 
