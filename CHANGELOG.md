@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/jwallace145/rusty-chess/compare/v1.5.0...v1.6.0) (2026-02-07)
+
+
+### Features
+
+* **releases:** Add workflow to automatically update Homebrew tap for new releases ([#27](https://github.com/jwallace145/rusty-chess/issues/27)) ([17a41ef](https://github.com/jwallace145/rusty-chess/commit/17a41ef85e564a9566a746c64c82c7d5788a2a18))
+
 # [1.5.0](https://github.com/jwallace145/rusty-chess/compare/v1.4.8...v1.5.0) (2026-02-07)
 
 
