@@ -3,3 +3,4 @@ secrets.sh
 game_recordings/
 release/
 *.tar.gz
+.idea/
