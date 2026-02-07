@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/jwallace145/rusty-chess/compare/v1.6.0...v1.6.1) (2026-02-07)
+
+
+### Bug Fixes
+
+* **releases:** Add required files to release artifacts ([#28](https://github.com/jwallace145/rusty-chess/issues/28)) ([eac21b4](https://github.com/jwallace145/rusty-chess/commit/eac21b49f167acb8e8eb803bbb713c54a0cbbfc7))
+
 # [1.6.0](https://github.com/jwallace145/rusty-chess/compare/v1.5.0...v1.6.0) (2026-02-07)
 
 
