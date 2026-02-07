@@ -1,6 +1,6 @@
 [package]
 name = "rusty-chess"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 description = "A highly-performant and powerful Chess engine written from scratch in Rust."
 authors = ["Jimmy Wallace <jimmy.wallace145@gmail.com>"]
