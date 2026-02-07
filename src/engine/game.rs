@@ -1,4 +1,4 @@
-use crate::board::{Board, ChessMove, ChessMoveState, Color, print_board};
+use crate::board::{Board, ChessMove, Color, MoveUndo, print_board};
 use crate::eval::Evaluator;
 use crate::metrics::{AiMoveMetrics, GameRecorder, GameResult};
 use crate::movegen::MoveGenerator;
@@ -15,7 +15,7 @@ pub enum PlayerAction {
 
 pub struct AiGame {
     board: Board,
-    move_history: Vec<ChessMoveState>,
+    move_history: Vec<MoveUndo>,
     player_color: Color,
     search_params: SearchParams,
     engine: ChessEngine,
@@ -284,12 +284,13 @@ impl AiGame {
             .find_best_move_iterative(&self.board, &self.search_params)
         {
             Some(best_move) => {
-                let from_notation = square_to_notation(best_move.from);
-                let to_notation = square_to_notation(best_move.to);
+                let from_notation = square_to_notation(best_move.from());
+                let to_notation = square_to_notation(best_move.to());
                 let move_notation = format!("{}-{}", from_notation, to_notation);
 
                 println!("AI plays: {},{}", from_notation, to_notation);
-                if best_move.capture {
+                if self.board.piece_on(best_move.to() as u8).is_some() || best_move.is_en_passant()
+                {
                     println!("  (capture)");
                 }
                 println!();
@@ -438,8 +439,8 @@ impl AiGame {
 
         // Capture player move notation
         let player_color = self.board.side_to_move;
-        let from_notation = square_to_notation(chess_move.from);
-        let to_notation = square_to_notation(chess_move.to);
+        let from_notation = square_to_notation(chess_move.from());
+        let to_notation = square_to_notation(chess_move.to());
         let move_notation = format!("{}-{}", from_notation, to_notation);
 
         self.move_counter += 1;
@@ -473,7 +474,7 @@ impl AiGame {
         MoveGenerator::generate_legal_moves(&self.board, &mut legal_moves);
         legal_moves
             .into_iter()
-            .find(|m| m.from == from && m.to == to)
+            .find(|m| m.from() == from && m.to() == to)
             .ok_or_else(|| "Invalid or illegal move".to_string())
     }
 
@@ -541,8 +542,8 @@ impl AiGame {
             .map(|m| {
                 format!(
                     "{},{}",
-                    square_to_notation(m.from),
-                    square_to_notation(m.to)
+                    square_to_notation(m.from()),
+                    square_to_notation(m.to())
                 )
             })
             .collect();

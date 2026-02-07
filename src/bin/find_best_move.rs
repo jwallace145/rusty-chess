@@ -199,14 +199,14 @@ fn main() {
     // Find the best move
     match engine.find_best_move_iterative(&board, &search_params) {
         Some(best_move) => {
-            let from = square_to_notation(best_move.from);
-            let to = square_to_notation(best_move.to);
+            let from = square_to_notation(best_move.from());
+            let to = square_to_notation(best_move.to());
 
             if config.quiet {
                 println!("{}{}", from, to);
             } else {
                 println!("Best move: {}{}", from, to);
-                if best_move.capture {
+                if board.piece_on(best_move.to() as u8).is_some() || best_move.is_en_passant() {
                     println!("Move type: Capture");
                 }
                 println!();
