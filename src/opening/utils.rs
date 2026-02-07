@@ -1,24 +1,16 @@
 use super::OpeningBook;
-use crate::board::{Board, ChessMove, ChessMoveType};
+use crate::board::{Board, ChessMove};
 
 /// Creates a normal (non-capturing) move from source to destination square.
 pub const fn mv(from: usize, to: usize) -> ChessMove {
-    ChessMove {
-        from,
-        to,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    }
+    ChessMove::new(from, to)
 }
 
 /// Creates a capture move from source to destination square.
+/// Note: In the packed ChessMove encoding, captures and non-captures
+/// share the same constructor. This helper documents capture intent.
 pub const fn capture(from: usize, to: usize) -> ChessMove {
-    ChessMove {
-        from,
-        to,
-        capture: true,
-        move_type: ChessMoveType::Normal,
-    }
+    ChessMove::new(from, to)
 }
 
 // Square constants for all 64 chess squares

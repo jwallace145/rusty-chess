@@ -178,17 +178,17 @@ pub fn compute_hash_board(board: &crate::board::Board) -> u64 {
     }
 
     // Hash castling rights
-    use crate::board::castling::Side;
-    if board.castling.has(Color::White, Side::KingSide) {
+    use crate::board::castling::CastlingSide;
+    if board.castling.has(Color::White, CastlingSide::KingSide) {
         hash ^= table.castling(CastlingRight::WhiteKingside);
     }
-    if board.castling.has(Color::White, Side::QueenSide) {
+    if board.castling.has(Color::White, CastlingSide::QueenSide) {
         hash ^= table.castling(CastlingRight::WhiteQueenside);
     }
-    if board.castling.has(Color::Black, Side::KingSide) {
+    if board.castling.has(Color::Black, CastlingSide::KingSide) {
         hash ^= table.castling(CastlingRight::BlackKingside);
     }
-    if board.castling.has(Color::Black, Side::QueenSide) {
+    if board.castling.has(Color::Black, CastlingSide::QueenSide) {
         hash ^= table.castling(CastlingRight::BlackQueenside);
     }
 

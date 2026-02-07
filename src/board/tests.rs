@@ -637,8 +637,6 @@ fn test_board_refactor_attacks() {
 
 #[test]
 fn test_make_unmake_simple_move() {
-    use crate::board::chess_move::ChessMoveType;
-
     let mut board = Board::new_empty();
 
     // Set up a simple position: white pawn on e2, kings far away
@@ -656,12 +654,7 @@ fn test_make_unmake_simple_move() {
     let original_board = board;
 
     // Make a move: pawn from e2 to e4
-    let mv = ChessMove {
-        from: 12,
-        to: 28,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(12, 28);
 
     let state = board.make_move(mv);
 
@@ -684,8 +677,6 @@ fn test_make_unmake_simple_move() {
 
 #[test]
 fn test_make_unmake_capture() {
-    use crate::board::chess_move::ChessMoveType;
-
     let mut board = Board::new_empty();
 
     // Set up position with a capture
@@ -704,12 +695,7 @@ fn test_make_unmake_capture() {
     let original_board = board;
 
     // Make a capture: pawn d4 takes e5
-    let mv = ChessMove {
-        from: 27,
-        to: 36,
-        capture: true,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(27, 36);
 
     let state = board.make_move(mv);
 
@@ -731,8 +717,7 @@ fn test_make_unmake_capture() {
 
 #[test]
 fn test_make_unmake_castling() {
-    use crate::board::castling::Side;
-    use crate::board::chess_move::ChessMoveType;
+    use crate::board::castling::CastlingSide;
 
     let mut board = Board::new_empty();
 
@@ -752,12 +737,7 @@ fn test_make_unmake_castling() {
     let original_castling = board.castling;
 
     // Make castling move
-    let mv = ChessMove {
-        from: 4,
-        to: 6,
-        capture: false,
-        move_type: ChessMoveType::Castle,
-    };
+    let mv = ChessMove::new_castle(4, 6);
 
     let state = board.make_move(mv);
 
@@ -766,8 +746,8 @@ fn test_make_unmake_castling() {
     assert_eq!(board.piece_on(6), Some((Color::White, Piece::King))); // King on g1
     assert_eq!(board.piece_on(7), None); // Rook moved from h1
     assert_eq!(board.piece_on(5), Some((Color::White, Piece::Rook))); // Rook on f1
-    assert!(!board.castling.has(Color::White, Side::KingSide));
-    assert!(!board.castling.has(Color::White, Side::QueenSide));
+    assert!(!board.castling.has(Color::White, CastlingSide::KingSide));
+    assert!(!board.castling.has(Color::White, CastlingSide::QueenSide));
 
     // Unmake castling
     board.unmake_move(state);
@@ -779,26 +759,20 @@ fn test_make_unmake_castling() {
     assert_eq!(board.piece_on(5), None);
     assert_eq!(board.king_sq[Color::White as usize], 4);
     assert_eq!(
-        board.castling.has(Color::White, Side::KingSide),
-        original_castling.has(Color::White, Side::KingSide)
+        board.castling.has(Color::White, CastlingSide::KingSide),
+        original_castling.has(Color::White, CastlingSide::KingSide)
     );
 }
 
 #[test]
 fn test_incremental_zobrist_hash_update() {
-    use crate::board::chess_move::ChessMoveType;
     use crate::search::compute_hash_board;
 
     // Test that make_move updates the hash incrementally and correctly
     let mut board = Board::startpos();
 
     // Make a move: e2e4
-    let mv = ChessMove {
-        from: 12,
-        to: 28,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(12, 28);
 
     board.make_move(mv);
 
@@ -810,12 +784,7 @@ fn test_incremental_zobrist_hash_update() {
     );
 
     // Make another move: e7e5
-    let mv2 = ChessMove {
-        from: 52,
-        to: 36,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv2 = ChessMove::new(52, 36);
 
     board.make_move(mv2);
 
@@ -841,12 +810,7 @@ fn test_incremental_zobrist_hash_update() {
     board.hash = compute_hash_board(&board);
 
     // Capture: d4xe5
-    let capture_mv = ChessMove {
-        from: 27,
-        to: 36,
-        capture: true,
-        move_type: ChessMoveType::Normal,
-    };
+    let capture_mv = ChessMove::new(27, 36);
 
     board.make_move(capture_mv);
 
@@ -859,19 +823,12 @@ fn test_incremental_zobrist_hash_update() {
 
 #[test]
 fn test_incremental_hash_undo() {
-    use crate::board::chess_move::ChessMoveType;
-
     // Test that unmake_move properly restores the hash
     let mut board = Board::startpos();
     let original_hash = board.hash;
 
     // Make a move
-    let mv = ChessMove {
-        from: 12,
-        to: 28,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(12, 28);
 
     let state = board.make_move(mv);
 
@@ -887,8 +844,7 @@ fn test_incremental_hash_undo() {
 
 #[test]
 fn test_castling_rights_update() {
-    use crate::board::castling::Side;
-    use crate::board::chess_move::ChessMoveType;
+    use crate::board::castling::CastlingSide;
 
     let mut board = Board::new_empty();
 
@@ -906,19 +862,14 @@ fn test_castling_rights_update() {
     board.castling = CastlingRights::full();
 
     // Move the king (should remove all white castling rights)
-    let mv = ChessMove {
-        from: 4,
-        to: 5,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(4, 5);
 
     board.make_move(mv);
 
-    assert!(!board.castling.has(Color::White, Side::KingSide));
-    assert!(!board.castling.has(Color::White, Side::QueenSide));
-    assert!(board.castling.has(Color::Black, Side::KingSide));
-    assert!(board.castling.has(Color::Black, Side::QueenSide));
+    assert!(!board.castling.has(Color::White, CastlingSide::KingSide));
+    assert!(!board.castling.has(Color::White, CastlingSide::QueenSide));
+    assert!(board.castling.has(Color::Black, CastlingSide::KingSide));
+    assert!(board.castling.has(Color::Black, CastlingSide::QueenSide));
 }
 
 #[test]
@@ -971,7 +922,6 @@ fn test_incremental_zobrist_hash() {
 
 #[test]
 fn test_zobrist_hash_with_promotion() {
-    use crate::board::chess_move::ChessMoveType;
     use crate::search::compute_hash_board;
 
     // Set up a position where white can promote
@@ -991,12 +941,7 @@ fn test_zobrist_hash_with_promotion() {
     board.hash = compute_hash_board(&board);
 
     // Promote pawn to queen
-    let promote = ChessMove {
-        from: 48,
-        to: 56,
-        capture: false,
-        move_type: ChessMoveType::Promotion(Piece::Queen),
-    };
+    let promote = ChessMove::new_promotion(48, 56, Piece::Queen);
     board.make_move(promote);
 
     let expected_hash = compute_hash_board(&board);
@@ -1019,17 +964,10 @@ fn test_to_fen_starting_position() {
 
 #[test]
 fn test_to_fen_after_e4() {
-    use crate::board::chess_move::ChessMoveType;
-
     let mut board = Board::startpos();
 
     // Play e2e4
-    let mv = ChessMove {
-        from: 12,
-        to: 28,
-        capture: false,
-        move_type: ChessMoveType::Normal,
-    };
+    let mv = ChessMove::new(12, 28);
     board.make_move(mv);
 
     let fen = board.to_fen();
