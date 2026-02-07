@@ -52,7 +52,9 @@ jobs:
           TAR_NAME="rusty-chess-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
 
           cp target/release/$BIN_NAME release/
-          tar -czf $TAR_NAME -C release $BIN_NAME
+          cp attack_tables.bin release/
+          cp opening_book.bin release/
+          tar -czf $TAR_NAME -C release .
 
           # macOS and Linux have different sha256 commands
           if [[ "${{ matrix.os }}" == macos-* ]]; then
